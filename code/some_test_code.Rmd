@@ -1,0 +1,124 @@
+---
+title: "testing code..."
+output: html_document
+date: "2024-10-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+try out accumulation curve to evaluate sequencing depth 
+```{r}
+library(iNEXT)
+library(ggplot2)
+
+#iNext crashes easily because of too many samples.  will need to break this up by project and year and subsets of samples...
+DBO_2021 <- taxon_table_1 %>%
+filter(collection_year == 2021)
+
+# need N lists of species read counts 
+
+taxon_table_2 <- DBO_2021 %>%
+   pivot_wider(names_from = taxon, values_from = tot_reads)
+
+# now convert the taxon table to lists of species abundances (one list per pcr rep)
+
+# make a variable for the first and last ASV column in the table
+tax_first <- which(colnames(taxon_table_2) == "Acantholumpenus mackayi")  
+tax_last <- ncol(taxon_table_2)
+
+# okay, need to go back to long format 
+taxon_long <- taxon_table_2 %>%
+  pivot_longer(cols = tax_first:tax_last, names_to = "taxon", values_to = "reads") %>%    
+  filter(reads > 0) %>% # filter out entries with no reads
+  arrange(extraction_ID, desc(reads))  # sort reads in descending order and group by sample
+
+#st <- taxon_long %>%
+#  filter(location1 %in% c("5"))
+
+# Nest the data to create a list of species reads for each sample
+read_lists <- taxon_long %>%
+  #group_by(sample_ID_date) %>%
+  group_by(extraction_ID) %>%
+  nest() %>%
+  mutate(
+    species_read_list = map(data, ~ .x %>% select(taxon, reads))
+  ) %>%
+  #select(sample_ID_date, species_read_list)
+  select(extraction_ID, species_read_list)
+
+#Convert to a list of lists
+read_list_final <- read_lists %>%
+  pull(species_read_list) %>%
+  #setNames(read_lists$sample_ID_date)
+  setNames(read_lists$extraction_ID)
+
+# Convert each table to a numeric vector of abundances
+read_lists_vector <- map(read_list_final, ~ {
+  .x %>%
+    filter(reads > 0) %>%
+    arrange(desc(reads)) %>%
+    pull(reads)
+})
+
+# knots is the number of intervals
+# endpoint is the max read count 
+# m can designate sample size 
+
+# try to run iNEXT - the function doesn't like non-integers so lots of warning will pop up.
+#out_nbs2023_st38 <- iNEXT(read_lists_vector, q = 0, datatype = "abundance")
+#out_nbs2023_st2_80knots <- iNEXT(read_lists_vector, q = 0, datatype = "abundance", knots = 80, endpoint = 100000) 
+#out_nbs2021_st46 <- iNEXT(read_lists_vector, q = 0, datatype = "abundance", knots = 80)
+
+#set a series of sample sizes for (m) 
+m <- c(1,50,100,250,500,1000,2000,3000,4000,5000,10000,20000,30000,40000)
+
+out_dbo21_m <- iNEXT(read_lists_vector, q = 0, datatype = "abundance", size = m)
+#out_nbs2021_st5_m <- iNEXT(read_lists_vector, q = 0, datatype = "abundance", size = m)
+
+```
+
+check out the output 
+```{r}
+out_nbs2021_st20_m$DataInfo
+out_nbs2021_st20_m$iNextEst
+out_nbs2021_st20_m$AsyEst
+```
+ 
+custom plot since ggiNEXT is giving me color problems 
+```{r}
+df <- fortify(out_nbs2021_st5_m, type=1)
+df.point <- df[which(df$Method=="Observed"),]
+df.line <- df[which(df$Method!="Observed"),]
+df.line$Method <- factor(df.line$Method,  c("Rarefaction", "Extrapolation"), c("Rarefaction", "Extrapolation"))
+
+my_plot <- ggplot(df, aes(x=x, y=y, colour=Assemblage)) +  
+  geom_point(size=5, data=df.point) + 
+  geom_line(aes(linetype=Method), lwd=1.5, data=df.line) + 
+  geom_ribbon(aes(ymin=y.lwr, ymax=y.upr, fill=Assemblage, colour=NULL), alpha=0.2) + 
+  labs(x="number of sequencing reads per 1-L bottle", y="Number of detected taxa", 
+       title = "NBS 2021 Station 5") + 
+  theme(legend.position = "bottom",  legend.title=element_blank(), text=element_text(size=18), legend.box = "vertical") +
+  xlim(0, 10000) + 
+  theme_minimal()
+my_plot
+```
+ 
+```{r}
+#ggsave("/home/kimberly.ledger/BeringSea_Arctic_eDNA/outputs/accumulation_curves/NBS_2023_st12_23_38_43_zoom.png", plot = my_plot, dpi = 150, width = 8, height = 6)
+```
+
+```{r}
+#extract iNEXT result 
+accumulation_data <- out_nbs2021_st5_m$iNextEst[[1]] 
+```
+
+maybe try to come back see if i can quantitatively determine the number of reads to be within x % of the max/observed species richness???? 
+
+this finds the number of species for a certain number of sampled sites - would likely need to break down sites by year and location to make this information useful for my project
+```{r}
+accum_curve <- specaccum(taxon_table_wide, "random")
+summary(accum_curve)
+plot(accum_curve)
+```
