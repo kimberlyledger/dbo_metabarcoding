@@ -1,0 +1,139 @@
+---
+title: "field sample stats - accumulation curves"
+author: "Kimberly Ledger"
+date: "2024-09-27"
+output: html_document
+---
+
+
+libraries
+```{r}
+library(tidyverse)
+rename <- dplyr::rename
+```
+
+input decontaminated ASV table - filter just to keep the DBO samples
+```{r}
+asv_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_asv_table.csv") %>%
+  select(!X) %>%
+  filter(project == "DBO") %>%
+  separate(sample_ID_date, into = c("extraction_ID", "replicate", "seq_date2"), sep = "-")
+```
+
+
+## explore the field samples 
+- use species accumulation curves with respect to the number of corrected reads to explore if that the sequencing depth was sufficient to detect all of the species contained in a sample
+
+since i only have one PCR replicate for 2021 samples, i'm going to switch from filtering by the pcr replicate level, and going to consider reads per bottle of water (extraction_ID / biological replicate)- also going to work at the taxon level, instead of with ASVs 
+
+```{r}
+taxon_table_1 <- asv_table %>%
+  group_by(extraction_ID, project_year, project, collection_year, sample_type, taxon, taxonomic_level, species, genus, family, order, class) %>%
+  summarize(tot_reads = sum(reads))
+```
+
+### accumulation curves 
+
+```{r}
+library(vegan)
+library(ggplot2)
+```
+
+```{r}
+taxon_table_wide <- taxon_table_1[,c(1,6,13)] %>%
+  mutate(tot_reads = as.integer(tot_reads)) %>%
+  pivot_wider(names_from = taxon, values_from = tot_reads)
+
+extraction_IDs <- taxon_table_wide$extraction_ID
+taxon_table_wide <- taxon_table_wide[,-1]
+
+## plots the figure
+rarecurve(taxon_table_wide, step = 20, col = "blue", label = FALSE, 
+          main = "Sequencing Effort Curves",
+          xlab = "Sequencing Depth", ylab = "Number of Species Identified")
+
+## outputs a list
+#my_rarecurve <- rarecurve(taxon_table_wide, step = 20, col = "blue", label = FALSE, 
+#          main = "Sequencing Effort Curves",
+#          xlab = "Sequencing Depth", ylab = "Number of Species Identified")
+#my_rarecurve
+```
+
+visually, it looks like around 10,000 reads per sample was enough to saturate taxonomic diversity. 
+
+
+what is the total reads per sampling station (1 PCR rep per extraction for 2021; 3 combined PCR reps per extraction in 2023)
+```{r}
+reads <- taxon_table_1 %>%
+  group_by(extraction_ID, project_year, sample_type) %>%
+  summarize(reads = sum(tot_reads)) %>%
+  arrange(desc(reads))
+
+ggplot(reads, aes(x = reorder(extraction_ID, -reads), y = reads)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  geom_hline(yintercept = 10000, linetype = "dashed", color = "red") +
+  labs(title = "Total Reads per Sample (Ordered from Largest to Smallest)",
+       x = "Sample",
+       y = "Total Reads") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))  # Rotate x-axis labels for readability
+```
+
+summarize in a table how many bottles meet certain read count thresholds 
+```{r}
+read_summary <- reads %>%
+  group_by(project_year, sample_type) %>%
+  summarize(atleast1 = sum(reads >= 1),
+            atleast500 = sum(reads >= 500),
+            atleast1k = sum(reads >= 1000),
+            atleast2k = sum(reads >= 2000),
+            atleast5k = sum(reads >= 5000),
+            atleast10k = sum(reads >= 10000),
+            atleast20k = sum(reads >= 20000))
+```
+
+even though saturation looks like it is around 10,000 reads, that would be quite a significant cut to the dataset 
+
+for any community analysis, i will remove any extractions with less than 1000 reads total from the dataset. 
+
+```{r}
+bottles_lessthan_1000 <- taxon_table_1 %>%
+  group_by(extraction_ID, project_year, sample_type) %>%
+  summarize(reads = sum(tot_reads)) %>%
+  filter(reads < 1000)
+```
+
+```{r}
+taxon_table_2 <- taxon_table_1 %>%
+  filter(!extraction_ID %in% bottles_lessthan_1000$extraction_ID)
+```
+
+```{r}
+write.csv(taxon_table_1, "/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_all.csv")
+write.csv(taxon_table_2, "/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_filtered.csv")
+```
+
+subset the mammal data to export for Amy 
+```{r}
+mammalia <- taxon_table_1 %>%
+  filter(class == "Mammalia")
+
+mammalia_wide <- mammalia[,c(1,6,13)] %>%
+  pivot_wider(names_from = taxon, values_from = tot_reads)
+
+metadata_dbo <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/NBS_SBS_DBO_metadata.csv") %>%
+  filter(project == "DBO") %>%
+  mutate(extraction_ID = ifelse(collection_year == "2021", alternative_ID, extraction_ID)) %>%
+  select(!longmire_volume_input_microliter) %>%
+  select(!preservation_volume_milliliters)
+
+mammalia_w_metadata <- mammalia_wide %>%
+  left_join(metadata_dbo, by = "extraction_ID") %>% 
+  rename(ABL_ID = extraction_ID) %>%
+  rename(PMEL_ID = alternative_ID)
+```
+
+export 
+```{r}
+#write.csv(mammalia_w_metadata, "/home/kimberly.ledger/dbo_metabarcoding/outputs/mammalia_taxon_table.csv", row.names = F)
+```
