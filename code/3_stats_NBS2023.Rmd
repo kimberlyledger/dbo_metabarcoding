@@ -1,0 +1,407 @@
+---
+title: "NBS 2023 - cleaning up decontamined asv table"
+author: "Kimberly Ledger"
+date: "2024-10-08"
+output: html_document
+---
+
+libraries
+```{r}
+library(tidyverse)
+rename <- dplyr::rename
+library(vegan)
+library(ggplot2)
+```
+
+input decontaminated ASV table - filter just to keep the NBS 2023 samples for this
+```{r}
+asv_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_asv_table.csv") %>%
+  select(!X) %>%
+  filter(project_year == "NBS_2023") %>%
+  separate(sample_ID_date, into = c("extraction_ID", "replicate", "seq_date2"), sep = "-", remove = F) %>%
+  unite(sample_ID, "extraction_ID", "replicate", sep = "-", remove = F)
+```
+
+
+## explore the field samples 
+- use species accumulation curves with respect to the number of corrected reads to explore if that the sequencing depth was sufficient to detect all of the species contained in a sample
+```{r}
+taxon_table <- asv_table %>%
+  group_by(sample_ID, sample_type, taxon, taxonomic_level, species, genus, family, order, class) %>%
+  summarize(tot_reads = sum(reads))
+```
+
+since processing of the taxon table included samples from DBO and SBS surveys, let me go ahead are remove any taxa that were found in those but NOT in any NBS 2023 samples 
+```{r}
+nbs_taxa <- taxon_table %>%
+  group_by(taxon) %>%
+  summarize(taxon_reads = sum(tot_reads)) %>%
+  filter(taxon_reads > 100) 
+
+taxon_table <- taxon_table %>%
+  filter(taxon %in% nbs_taxa$taxon)
+```
+
+
+### accumulation curves 
+```{r}
+taxon_table_wide <- taxon_table[,c(1,3,10)] %>%
+  mutate(tot_reads = as.integer(tot_reads)) %>%
+  pivot_wider(names_from = taxon, values_from = tot_reads)
+
+extraction_IDs <- taxon_table_wide$extraction_ID
+taxon_table_wide <- taxon_table_wide[,-1]
+
+## plots the figure
+rarecurve(taxon_table_wide, step = 20, col = "blue", label = FALSE, 
+          main = "Sequencing Effort Curves",
+          xlab = "Sequencing Depth", ylab = "Number of Species Identified",
+          xlim = c(0,6000))
+```
+
+visually, it looks like around 1,000 reads per sample was enough to saturate taxonomic diversity. 
+
+
+summarize in a table how many bottles meet certain read count thresholds 
+```{r}
+read_summary <- taxon_table %>%
+  group_by(sample_ID, sample_type) %>%
+  summarize(reads = sum(tot_reads)) %>%
+  group_by(sample_type) %>%
+  summarize(atleast1 = sum(reads >= 1),
+            atleast500 = sum(reads >= 500),
+            atleast1k = sum(reads >= 1000),
+            atleast2k = sum(reads >= 2000),
+            atleast5k = sum(reads >= 5000),
+            atleast10k = sum(reads >= 10000),
+            atleast20k = sum(reads >= 20000))
+```
+
+for any community analysis, i will remove any pcr replicates with less than 600 reads total from the dataset. 
+```{r}
+lessthan_600 <- taxon_table %>%
+  group_by(sample_ID, sample_type) %>%
+  summarize(reads = sum(tot_reads)) %>%
+  filter(reads < 600)
+```
+
+```{r}
+taxon_table_filtered <- taxon_table %>%
+  filter(!sample_ID %in% lessthan_600$sample_ID)
+```
+
+```{r}
+#write.csv(taxon_table, "/home/kimberly.ledger/dbo_metabarcoding/NBS2023/decontaminated_taxon_table_all.csv")
+#write.csv(taxon_table_filtered, "/home/kimberly.ledger/dbo_metabarcoding/NBS2023/decontaminated_taxon_table_filtered.csv")
+```
+
+filter the taxon table so that there's just fish 
+```{r}
+actinopteri_table <- taxon_table_filtered %>%
+  filter(class == "Actinopteri") %>%
+  filter(sample_type == "sample")
+
+wide_table <- actinopteri_table %>%
+  ungroup() %>%
+  select(sample_ID, taxon, tot_reads) %>%
+  pivot_wider(names_from = taxon,  values_from = tot_reads)
+
+# Calculate column sums
+col_sums <- colSums(wide_table[,-1])
+```
+
+calculate the eDNA index 
+```{r}
+library(vegan)
+
+wide_table_w_extraction_ID <- wide_table %>%
+  mutate(sample_ID = gsub("D", "A", sample_ID),
+         sample_ID = gsub("E", "B", sample_ID),
+         sample_ID = gsub("F", "C", sample_ID)) %>%
+  separate(sample_ID, into = c("extraction_ID", "replicate"), sep = "-", remove = F)
+
+df <- wide_table_w_extraction_ID %>%
+  pivot_longer(cols = c(4:35), names_to = "taxon", values_to = "reads") %>%
+  separate(sample_ID, into = c("extraction_ID", "replicate"), sep = "-") %>%
+  select(extraction_ID, taxon, reads) %>%
+  group_by(extraction_ID, taxon) %>%
+  summarize(sumreads = sum(reads)) %>% ## sum the technical (pcr) replicates
+  group_by(extraction_ID) %>%
+  mutate(Tot = sum(sumreads),
+              Prop = sumreads / Tot) %>% ## this creates the proportion on each bottle replicate
+  select(-sumreads, -Tot) %>%
+  pivot_wider(names_from = taxon, values_from = Prop)
+
+ids <- df$extraction_ID
+df <- df[,-1]
+
+wis_index <- wisconsin(df)
+
+rowSums(wis_index)
+wis_index$extraction_ID <- ids
+```
+
+
+```{r}
+write.csv(wide_table_w_extraction_ID, "/home/kimberly.ledger/dbo_metabarcoding/NBS2023/NBS23_readcounts.csv", row.names = F)
+write.csv(wis_index, "/home/kimberly.ledger/dbo_metabarcoding/NBS2023/NBS23_index.csv", row.names = F)
+```
+
+read in some metadata needed for this step 
+```{r}
+metadata <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/NBS_SBS_DBO_metadata.csv") %>%
+  filter(project == "NBS") %>%
+  filter(collection_year == 2023) %>%
+  filter(sample_type == "sample") %>%
+  select(extraction_ID, alternative_ID, collection_year, collection_month, collection_day, location1, depth, longitude, latitude) %>%
+  mutate(longitude = ifelse(location1 == 5, -170.99, longitude),
+         latitude = ifelse(location1 == 5, 60.49, latitude))
+```
+
+```{r}
+write.csv(metadata, "/home/kimberly.ledger/dbo_metabarcoding/NBS2023/NBS23_metadata.csv", row.names = F)
+```
+
+
+```{r}
+wis_index_long <- wis_index %>%
+  pivot_longer(cols = c(1:32), names_to = "taxon", values_to = "normalized")
+```
+
+
+
+
+### Step 6. Investigate dissimilarity between PCR replicates 
+
+are there any samples that have made it to this point that don't actually have any reads? 
+```{r}
+taxon_table_filtered %>%
+  separate(sample_ID, into = c("extraction_ID", "rep"), sep = "-", remove = F) %>%
+  group_by(extraction_ID) %>%
+  summarise(total_reads = sum(tot_reads)) %>%
+  arrange(total_reads)
+```
+
+how many pcr replicates does each extraction replicate have? 
+```{r}
+onerep <- taxon_table_filtered  %>%
+  separate(sample_ID, into = c("extraction_ID", "replicate"), remove = F) %>%
+  group_by(extraction_ID) %>%
+  summarise(nrep = n_distinct(sample_ID)) %>%
+  filter(nrep == 1)
+
+tworep <- taxon_table_filtered  %>%
+  separate(sample_ID, into = c("extraction_ID", "replicate"), remove = F) %>%
+  group_by(extraction_ID) %>%
+  summarise(nrep = n_distinct(sample_ID)) %>%
+  filter(nrep == 2)
+
+threerep <- taxon_table_filtered  %>%
+  separate(sample_ID, into = c("extraction_ID", "replicate"), remove = F) %>%
+  group_by(extraction_ID) %>%
+  summarise(nrep = n_distinct(sample_ID)) %>%
+  filter(nrep == 3)
+
+onerep
+tworep
+threerep
+```
+
+i can only test for pcr replicate dissimilarity with extractions with at least 2 replicates 
+```{r}
+dissim_df <- taxon_table_filtered  %>%
+  separate(sample_ID, into = c("extraction_ID", "replicate"), remove = F) %>%
+  filter(!extraction_ID %in% onerep$extraction_ID)
+```
+
+first, i'll calculate an eDNA index - going to do this at the TAXA level
+```{r}
+normalized <- dissim_df %>%
+  group_by(sample_ID) %>%
+  mutate(Tot = sum(tot_reads),
+         Prop_reads = tot_reads/Tot) %>%
+  ungroup() %>%
+  dplyr::group_by(taxon) %>%
+  mutate(Colmax = max(Prop_reads, na.rm = TRUE),
+         Normalized_reads = Prop_reads/Colmax) %>%
+  filter(!is.na(Normalized_reads))
+```
+
+read in some metadata needed for this step 
+```{r}
+metadata <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/NBS_SBS_DBO_metadata.csv") %>%
+  filter(project == "NBS") %>%
+  filter(collection_year == 2023)
+
+metadata_mini <- metadata %>%
+  select(extraction_ID, sample_type, location1, depth, longitude, latitude)
+```
+
+add back in some metadata - will use this for dissimilarity measures
+```{r}
+normalized <- normalized %>%
+  left_join(metadata_mini) %>%
+  unite(location_depth, location1, depth, sep = "_", remove = FALSE) %>%
+  unite(location_depth_bottle, location_depth, extraction_ID, sep = "-", remove = FALSE) %>%
+  unite(location_depth_bottle_pcr, location_depth_bottle, replicate, sep = ".", remove = FALSE)
+```
+day_bottle t0 location_depth
+day_bottle_pcr to location_depth_bottle
+added location_depth_bottle_pcr
+
+```{r}
+tibble_to_matrix <- function (tb) {
+  
+  tb %>%
+  #normalized %>%
+    group_by(location_depth_bottle_pcr, taxon) %>% 
+    summarise(nReads = sum(Normalized_reads)) %>% 
+    spread ( key = "taxon", value = "nReads", fill = 0) %>%
+    ungroup() -> matrix_1
+    samples <- pull (matrix_1, location_depth_bottle_pcr)
+    matrix_1[,-1] -> matrix_1
+    data.matrix(matrix_1) -> matrix_1
+    dimnames(matrix_1)[[1]] <- samples
+    vegdist(matrix_1) -> matrix_1
+}
+```
+
+```{r}
+all.distances.full <- tibble_to_matrix(normalized)
+
+# Do all samples have a name?
+summary(is.na(names(all.distances.full)))
+```
+
+make the pairwise distances a long table
+```{r}
+library(reshape)
+
+as_tibble(subset(melt(as.matrix(all.distances.full)))) -> all.distances.melted
+
+# Any major screw ups
+summary(is.na(all.distances.melted$value))
+
+# Now, create a three variables for all distances, they could be PCR replicates, BIOL replicates, or from the same site
+all.distances.melted %>%
+  separate (X1, into = "Bottle1", sep = "\\.", remove = FALSE) %>%
+  separate (Bottle1, into = "Depth1", sep = "\\-", remove = FALSE) %>%
+  separate (Depth1, into = "Site1", remove = FALSE) %>%
+  separate (X2, into = "Bottle2", sep = "\\.", remove = FALSE) %>%
+  separate (Bottle2, into ="Depth2", sep = "\\-", remove = FALSE) %>%
+  separate (Depth2, into = "Site2", remove = FALSE) %>%
+  mutate (Distance.type = case_when(  Bottle1 == Bottle2 ~ "PCR Replicates",
+                                      Depth1 == Depth2 ~ "Same Site and Depth",
+                                      Site1 == Site2 ~ "Same Site",
+                                      TRUE ~ "Different Site"
+                                     )) %>%
+  dplyr::select(Sample1 = X1, Sample2 = X2 , value , Distance.type) %>%
+  filter (Sample1 != Sample2) -> all.distances.to.plot
+
+# Checking all went well
+sapply(all.distances.to.plot, function(x) summary(is.na(x)))
+```
+
+```{r}
+all.distances.to.plot$Distance.type <- all.distances.to.plot$Distance.type  %>% fct_relevel("PCR Replicates", "Same Site and Depth", "Same Site")
+
+ggplot (all.distances.to.plot) +
+  geom_histogram (aes (fill = Distance.type, x = value, after_stat(ndensity)), position = "dodge",  alpha = 0.9, bins = 50) +
+  facet_wrap( ~ Distance.type) +
+  labs (x = "Pairwise dissimilarity", y = "density" ,
+        Distance.type = "Distance",
+        title = "NBS 2023") +
+    guides (fill = "none")
+```
+
+now identify and discard outliers 
+```{r message=FALSE, warning=FALSE}
+normalized %>%
+  group_by(extraction_ID) %>% nest() -> nested.cleaning 
+
+nested.cleaning %>% 
+  mutate(matrix = map(data, tibble_to_matrix)) -> nested.cleaning
+
+nested.cleaning %>% mutate(ncomparisons = map(matrix, length)) -> nested.cleaning
+```
+
+```{r}
+dist_to_centroid <- function (x,y) {
+  
+  #biol <- rep(y, dim(x)[[1]])
+  biol <- rep(y, length(x))
+  
+  if (length(biol) == 1) {
+    output = rep(x[1]/2,2)
+    names(output) <- attr(x, "Labels")
+  }else{ 
+    
+  dispersion <- betadisper(x, group = biol)
+  output = dispersion$distances
+  }
+  output
+    }
+```
+
+```{r}
+nested.cleaning.temp <- nested.cleaning %>% 
+  mutate(distances = map2(matrix, extraction_ID, dist_to_centroid))
+
+all_distances <- nested.cleaning.temp %>%
+  unnest_longer(distances) %>%
+  dplyr::select(extraction_ID, distances_id, distances)
+
+hist(all_distances$distances)
+```
+
+calculate normal distribution of distances to centroid - NOPE
+
+filter >0.8 distances
+```{r}
+#normparams <- MASS::fitdistr(all_distances$distances, "normal")$estimate                                      
+#probs <- pnorm(all_distances$distances, normparams[1], normparams[2])
+#outliers_centroid <- which(probs>0.99)
+
+#discard_centroid <- all_distances$distances_id[outliers_centroid]
+
+discard_centroid <- all_distances %>%
+  filter(distances > 0.8)
+discard_centroid
+```
+
+which extraction/bottle ID have a pcr replicate that's recommended for removal? 
+```{r}
+removed_dissim <- normalized %>%
+  filter(extraction_ID %in% discard_centroid$extraction_ID)
+```
+
+
+these samples have at least one dissimilar pcr replicates 
+```{r}
+unique(removed_dissim$extraction_ID)
+
+first_six <- unique(removed_dissim$extraction_ID)[1:6]
+#first_three <- unique(removed_step5$extraction_ID)[1:3]
+
+removed_dissim %>%
+  filter(extraction_ID %in% first_six) %>%
+  filter(tot_reads > 0) %>%
+  group_by(sample_ID) %>%
+  mutate(sum=sum(tot_reads)) %>%
+  mutate(prop = tot_reads/sum) %>%
+  ggplot(aes(x=sample_ID, y=prop, fill=taxon)) +
+  geom_bar(stat = "identity") + 
+  facet_wrap(~extraction_ID, scales = 'free', ncol = 3) +
+  theme_bw() + 
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 0.95),
+    #legend.position = "none",
+    legend.title = element_blank()
+  )  
+```
+
+hmm well should probably investigate this for community analyses, etc. but going to just pass along all data to thorson
+
+
+
+

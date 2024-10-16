@@ -1,0 +1,225 @@
+---
+title: "dbo gadids"
+output: html_document
+date: "2024-10-16"
+---
+
+just looking at the gadid detection in the dbo mifish metabarcoding dataset 
+
+some thoughts: since the metabarcoding data targeted all fish, not just gadids, that means the number of reads or proportion of gadid reads per sample is influenced by the non-gadid species present. therefore, i believe the appropriate approach would be to use gadid reads as binary data. and i will try out some proportion of positive technical replicate response variable for bottles/sites to act as a rough proxy for the amount of DNA recovered. 
+
+libraries
+```{r}
+library(tidyverse)
+library(ggplot2)
+rename <- dplyr::rename
+#library(viridis)
+#library(ggrepel)
+```
+
+the data 
+```{r}
+taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_filtered.csv") %>%
+  select(!X)  %>%
+  filter(sample_type == "sample")
+
+metadata <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/NBS_SBS_DBO_metadata.csv") %>%
+  filter(project == "DBO")
+
+metadata_mini <- metadata %>%
+  select(extraction_ID, alternative_ID, sample_type, project, collection_year, location1, location2, depth, longitude, latitude) %>%
+  unite("project_year", project, collection_year, sep = "_", remove = F) %>%
+  mutate(extraction_ID = ifelse(project_year == "DBO_2021", alternative_ID, extraction_ID)) %>% # for DBO2021 samples, replace extraction_ID with alternative_ID
+  select(!alternative_ID)
+```
+
+get additional cruise metadata - this is not a final version for 2023 samples 
+```{r}
+cruise_meta <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/SikuliaqDBO_2021_2023_cruisedata_20241015.csv") %>%
+  mutate(temp_C = (temperature_ch1 + temperature_ch2)/2) %>%
+  mutate(salinity = (salinity_ch1 + salinity_ch2)/2)
+```
+
+```{r}
+metadata_join <- metadata_mini %>%
+  left_join(cruise_meta) %>%
+  mutate(temp_C = ifelse(extraction_ID == "e04213", -0.89975, temp_C),   ## filling in missing data by taking the average on the station before and after at same depth 
+         temp_C = ifelse(extraction_ID == "e04214", 2.77975, temp_C),
+         salinity = ifelse(extraction_ID == "e04213", 32.45635, salinity),
+         salinity = ifelse(extraction_ID == "e04214", 30.39102, salinity),
+         Collection_Time_local = ifelse(extraction_ID == "E1090.SKQ2021", '10:31', Collection_Time_local),
+         Collection_Time_local = ifelse(extraction_ID == "E1088.SKQ2021", '10:31', Collection_Time_local),
+         Collection_Time_local = ifelse(extraction_ID == "E1089.SKQ2021", '10:31', Collection_Time_local))
+```
+
+filter taxon table to keep just the gadids 
+```{r}
+gadids <- taxon_table %>%
+  filter(family == "Gadidae")
+
+gadids %>%
+  group_by(collection_year, taxon) %>%
+  summarise(n_reads = sum(tot_reads)) %>%
+  group_by(collection_year) %>%
+  mutate(gadidae_reads = sum(n_reads),
+         prop_reads = n_reads/gadidae_reads) %>%
+  select(collection_year, taxon, prop_reads) %>%
+  pivot_wider(names_from = collection_year, values_from = prop_reads)
+  
+```
+
+okay so gadidae reads make us <1% in each year and gadus made up 4-9% of reads 
+mostly pollock (80% and 50%, respectively) 
+way higher proportion of reads for arctic cod in 2023 than 2021 
+pretty low proportions of pcod (~1-2%)
+
+anyway, ~90% of reads go to species level so for now i'll move forward with just the reads that get down to species 
+
+the dataframe i'm working with right now, is already the sum of the three technical replicates for 2023 data - would need to go back a few steps if i want to incorporate variability in tech replicates for 2023 samples (which might be worth it)
+
+pivot gadid table 
+```{r}
+gadids_wide <- gadids[,c(1,6,13)] %>%
+  pivot_wider(names_from = taxon, values_from = tot_reads)
+```
+
+join the gadid table to metadata to fill in extractions with no gadid reads 
+
+```{r}
+gadids_w_meta <- metadata_join %>%
+  filter(sample_type == "sample") %>%
+  left_join(gadids_wide) %>%
+  replace_na(list('Arctogadus glacialis' = 0, 'Boreogadus saida' = 0, 'Eleginus gracilis' = 0, 'Gadidae' = 0, 'Gadus' = 0, 'Gadus chalcogrammus' = 0, 'Gadus macrocephalus' = 0))
+```
+
+pull out just the binary data, now that all rows/samples are there 
+```{r}
+extraction_ids <- gadids_w_meta$extraction_ID
+
+tax_df <- gadids_w_meta[,c(26:32)] %>%
+  mutate(across(where(is.numeric), ~ ifelse(. > 0, 1, .)))
+```
+
+for each station and year (i.e. combine bottles from multiple depths), count the total number of bottles and number of bottles with detections for each species 
+
+```{r}
+gadids_w_meta %>%
+  group_by(collection_year, location1, `Arctogadus glacialis`, , `, `Gadus chalcogrammus`, `Gadus macrocephalus`) %>%
+  summarize(n_bottles = n(),
+            AG = sum())
+
+pres <- gadids_w_meta %>%
+  group_by(collection_year, location1) %>%
+  summarize(
+    n_bottles = n(),                            # Total number of rows
+    n_AG = sum(`Arctogadus glacialis` > 0, na.rm = TRUE),   # Number of rows where AC > 0
+    n_BS = sum(`Boreogadus saida` > 0, na.rm = TRUE), # Number of rows where BS > 0
+    n_EG = sum(`Eleginus gracilis` > 0, na.rm = TRUE), # Number of rows where EG > 0
+    n_GC = sum(`Gadus chalcogrammus` > 0, na.rm = TRUE), # Number of rows where GC > 0
+    n_GM = sum(`Gadus macrocephalus` > 0, na.rm = TRUE),
+    prop_AG = n_AG/n_bottles, 
+    prop_BS = n_BS/n_bottles,
+    prop_EG = n_EG/n_bottles,
+    prop_GC = n_GC/n_bottles,
+    prop_GM = n_GM/n_bottles)
+```
+
+get the year/location metadata 
+```{r}
+df <- gadids_w_meta %>%
+  group_by(collection_year, location1, location2, longitude, latitude) %>%
+  summarise(mean_temp = mean(temp_C, na.rm = T),
+            mean_salinity = mean(salinity, na.rm = T)) %>%
+  left_join(pres)
+```
+
+
+i'm not sure the mean temp is the appropriate thing to use in these models... but for now. 
+```{r}
+#Sys.setenv(PATH = paste("/opt/anaconda/bin", Sys.getenv("PATH"), sep = ":"))
+#Sys.which("cmake")
+#install.packages("glmmTMB")
+
+library(glmmTMB)
+
+arctic_c <- glmmTMB(cbind(n_BS, n_bottles - n_BS) ~ latitude + as.factor(collection_year), family = binomial(link = "logit"), 
+                 data = df)
+
+summary(arctic_c)
+
+pollock <- glmmTMB(cbind(n_GC, n_bottles - n_GC) ~ latitude  + as.factor(collection_year), family = binomial(link = "logit"), 
+                 data = df)
+
+summary(pollock)
+
+pcod <- glmmTMB(cbind(n_GM, n_bottles - n_GM) ~ latitude + mean_temp, family = binomial(link = "logit"), 
+                 data = df)
+
+summary(pcod)
+```
+
+
+okay, how about a visualization 
+
+load libraries
+```{r}
+library(rnaturalearth)
+library(rnaturalearthdata)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+```
+
+
+plot 
+```{r}
+min_lat <- min(df$latitude, na.rm = T)
+max_lat <- max(df$latitude, na.rm = T)
+
+min_lon <- min(df$longitude, na.rm = T)
+max_lon <- max(df$longitude, na.rm = T)
+
+df$collection_year <- as.factor(df$collection_year)
+
+arctic_cod_plot <- ggplot(data = world) +
+    geom_sf() +
+    geom_point(data = df, aes(x = longitude, y = latitude, color= prop_BS)) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude") +
+  facet_grid(~collection_year) + 
+  #labs(title = df$taxon) +
+  theme(axis.text.x = element_text(angle = 90))
+
+arctic_cod_plot
+
+pollock_plot <- ggplot(data = world) +
+    geom_sf() +
+    geom_point(data = df, aes(x = longitude, y = latitude, color= prop_GC)) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude") +
+  facet_grid(~collection_year) + 
+  #labs(title = df$taxon) +
+  theme(axis.text.x = element_text(angle = 90))
+
+pollock_plot
+
+temp_plot <- ggplot(data = world) +
+    geom_sf() +
+    geom_point(data = df, aes(x = longitude, y = latitude, color= mean_temp)) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude") +
+  facet_grid(~collection_year) + 
+  #labs(title = df$taxon) +
+  theme(axis.text.x = element_text(angle = 90))
+
+temp_plot
+```
+
+try working with afsc maps
+
+```{r}
+#devtools::install_github("afsc-gap-products/akgfmaps", build_vignettes = TRUE)
+
+#library(akgfmaps)
+#browseVignettes('akgfmaps')
+```
+
+
