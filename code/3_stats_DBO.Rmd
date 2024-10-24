@@ -27,10 +27,19 @@ asv_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontami
 since i only have one PCR replicate for 2021 samples, i'm going to switch from filtering by the pcr replicate level, and going to consider reads per bottle of water (extraction_ID / biological replicate)- also going to work at the taxon level, instead of with ASVs 
 
 ```{r}
+#taxon_table_1 <- asv_table %>%
+#  group_by(extraction_ID, project_year, project, collection_year, sample_type, taxon, taxonomic_level, species, genus, family, order, class) %>%
+#  summarize(tot_reads = sum(reads))
+```
+
+okay, after comparing results from the two years and finding much greater taxa richness in 2023 and 2021, i wannt to try keeping all pcr reps seperate to see if the 1 vs 3 pcr reps is causing the difference... 
+
+```{r}
 taxon_table_1 <- asv_table %>%
-  group_by(extraction_ID, project_year, project, collection_year, sample_type, taxon, taxonomic_level, species, genus, family, order, class) %>%
+  group_by(extraction_ID, replicate, project_year, project, collection_year, sample_type, taxon, taxonomic_level, species, genus, family, order, class) %>%
   summarize(tot_reads = sum(reads))
 ```
+
 
 ### accumulation curves 
 
@@ -40,11 +49,16 @@ library(ggplot2)
 ```
 
 ```{r}
-taxon_table_wide <- taxon_table_1[,c(1,6,13)] %>%
+#taxon_table_wide <- taxon_table_1[,c(1,6,13)] %>%     ## combined pcr reps
+taxon_table_wide <- taxon_table_1[,c(1,2,7,14)] %>%    ## pcr reps seperate 
   mutate(tot_reads = as.integer(tot_reads)) %>%
   pivot_wider(names_from = taxon, values_from = tot_reads)
 
-extraction_IDs <- taxon_table_wide$extraction_ID
+taxon_table_wide <- taxon_table_wide %>%
+  unite(col = "full_ID", extraction_ID, replicate, sep = "_")
+
+IDs <- taxon_table_wide$full_ID
+         
 taxon_table_wide <- taxon_table_wide[,-1]
 
 ## plots the figure
@@ -59,17 +73,19 @@ rarecurve(taxon_table_wide, step = 20, col = "blue", label = FALSE,
 #my_rarecurve
 ```
 
-visually, it looks like around 10,000 reads per sample was enough to saturate taxonomic diversity. 
+which pcr reps are combined, visually, it looks like around 10,000 reads per sample was enough to saturate taxonomic diversity. 
 
 
-what is the total reads per sampling station (1 PCR rep per extraction for 2021; 3 combined PCR reps per extraction in 2023)
+XXXX - what is the total reads per sampling station (1 PCR rep per extraction for 2021; 3 combined PCR reps per extraction in 2023)
+update - now all pcr reps are seperate for 2023
 ```{r}
 reads <- taxon_table_1 %>%
-  group_by(extraction_ID, project_year, sample_type) %>%
+  group_by(extraction_ID, replicate, project_year, sample_type) %>%
   summarize(reads = sum(tot_reads)) %>%
-  arrange(desc(reads))
+  arrange(desc(reads)) %>%
+  unite(col = "full_ID", extraction_ID, replicate, sep = "_")
 
-ggplot(reads, aes(x = reorder(extraction_ID, -reads), y = reads)) +
+ggplot(reads, aes(x = reorder(full_ID, -reads), y = reads)) +
   geom_bar(stat = "identity", fill = "steelblue") +
   theme_minimal() +
   geom_hline(yintercept = 10000, linetype = "dashed", color = "red") +
@@ -84,6 +100,7 @@ summarize in a table how many bottles meet certain read count thresholds
 read_summary <- reads %>%
   group_by(project_year, sample_type) %>%
   summarize(atleast1 = sum(reads >= 1),
+            atleast100 = sum(reads >= 100),
             atleast500 = sum(reads >= 500),
             atleast1k = sum(reads >= 1000),
             atleast2k = sum(reads >= 2000),
@@ -94,10 +111,38 @@ read_summary <- reads %>%
 
 even though saturation looks like it is around 10,000 reads, that would be quite a significant cut to the dataset 
 
-for any community analysis, i will remove any extractions with less than 1000 reads total from the dataset. 
+XXX - for any community analysis, i will remove any extractions with less than 1000 reads total from the dataset. 
+update : for when PCR reps are kept separate, 
 
 ```{r}
 bottles_lessthan_1000 <- taxon_table_1 %>%
+  group_by(extraction_ID, project_year, sample_type) %>%
+  summarize(reads = sum(tot_reads)) %>%
+  filter(reads < 1000)
+
+pcr_reps_lessthan_100 <- taxon_table_1 %>%
+  group_by(extraction_ID, replicate, project_year, sample_type) %>%
+  summarize(reads = sum(tot_reads)) %>%
+  filter(reads < 100) %>%
+  unite(col = "full_ID", extraction_ID, replicate, sep = "_", remove = F)
+
+#extractions in bottles <1000 but not pcr rep <500
+setdiff(bottles_lessthan_1000$extraction_ID, pcr_reps_lessthan_500$extraction_ID)
+
+#extractions in pcr rep <500 but not bottles <1000 
+setdiff(pcr_reps_lessthan_500$extraction_ID, bottles_lessthan_1000$extraction_ID)
+
+## how many of the bottles do have more than 1000 reads combined after pcr reps under 500 are removed?? 
+taxon_table_1 %>%
+  unite(col = "full_ID", extraction_ID, replicate, sep = "_", remove = F) %>%
+  filter(extraction_ID %in% pcr_reps_lessthan_500$extraction_ID) %>%
+  filter(full_ID %in% pcr_reps_lessthan_500$full_ID) %>%
+  group_by(extraction_ID, project_year, sample_type) %>%
+  summarize(reads = sum(tot_reads)) %>%
+  filter(reads > 999)
+
+taxon_table_1 %>%
+  filter(extraction_ID %in% pcr_reps_lessthan_500$extraction_ID) %>%
   group_by(extraction_ID, project_year, sample_type) %>%
   summarize(reads = sum(tot_reads)) %>%
   filter(reads < 1000)
@@ -105,12 +150,16 @@ bottles_lessthan_1000 <- taxon_table_1 %>%
 
 ```{r}
 taxon_table_2 <- taxon_table_1 %>%
-  filter(!extraction_ID %in% bottles_lessthan_1000$extraction_ID)
+  #filter(!extraction_ID %in% bottles_lessthan_1000$extraction_ID)
+  unite(col = "full_ID", extraction_ID, replicate, sep = "_", remove = F) %>%
+  filter(!full_ID %in% pcr_reps_lessthan_100$full_ID)
 ```
 
 ```{r}
-write.csv(taxon_table_1, "/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_all.csv")
-write.csv(taxon_table_2, "/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_filtered.csv")
+#write.csv(taxon_table_1, "/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_all.csv")
+#write.csv(taxon_table_2, "/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_filtered.csv")
+
+#write.csv(taxon_table_2, "/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_pcr_reps.csv")
 ```
 
 subset the mammal data to export for Amy 
@@ -118,7 +167,7 @@ subset the mammal data to export for Amy
 mammalia <- taxon_table_1 %>%
   filter(class == "Mammalia")
 
-mammalia_wide <- mammalia[,c(1,6,13)] %>%
+mammalia_wide <- mammalia[,c(1,2,7,14)] %>%
   pivot_wider(names_from = taxon, values_from = tot_reads)
 
 metadata_dbo <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/NBS_SBS_DBO_metadata.csv") %>%

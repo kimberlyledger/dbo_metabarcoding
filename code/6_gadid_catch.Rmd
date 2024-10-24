@@ -1,0 +1,251 @@
+---
+title: "gadid catch"
+output: html_document
+date: "2024-10-18"
+---
+
+```{r}
+library(tidyverse)
+```
+
+
+
+read in gadid catch datafile that i reformated to better work with in R 
+```{r}
+catch <- read.csv("data/gadidsamples2010to2019.csv")
+```
+
+make some summary tables by year, lat, long, and species 
+- many unknown species ids, will remove them from the dataset for now 
+```{r}
+temp <- catch %>%
+  filter(collection_year != 2010) %>% ## remove 2010 data since it was at low lats compared to other years
+  filter(CommonName != "UNK") %>%  ## remove unidentified species
+  filter(!is.na(StartLatitude_N)) %>%  ## remove any with missing lat/long
+  filter(StartLongitude_W != 139) %>% ## remove the one entry with clearly a location issue
+  group_by(collection_year, StartLatitude_N, StartLongitude_W, CommonName) %>%
+  summarise(count = n()) #%>%
+  #ungroup() %>%
+  #group_by(collection_year, StartLatitude_N, StartLongitude_W) %>%
+  #mutate(total = sum(count),
+  #       prop = count/total)
+```
+
+how many sampling events were there in a given year
+```{r}
+temp %>%
+  group_by(collection_year) %>%
+  summarise(events = n_distinct(paste(StartLatitude_N, StartLongitude_W)))
+```
+
+these numbers are very similar to Wildes et al., maybe a few hauls with no fish so that's why there's no data for them?? 
+
+i want to fill in the zeros for species that were not caught 
+```{r}
+temp_wide <- temp %>%
+  pivot_wider(names_from = CommonName, values_from = count) %>%
+  mutate(across(everything(), ~ replace_na(., 0)))
+```
+
+put back into long format for plotting
+```{r}
+temp_long <- temp_wide %>%
+  pivot_longer(cols = c(`Arctic cod`:`Polar cod`), values_to = "count", names_to = "CommonName") %>%
+  group_by(collection_year, StartLatitude_N, StartLongitude_W) %>%
+  mutate(total = sum(count),
+         prop = count/total)
+```
+
+load libraries
+```{r}
+library(rnaturalearth)
+library(rnaturalearthdata)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+```
+
+```{r}
+min_lat <- min(temp_long$StartLatitude_N, na.rm = T)
+max_lat <- max(temp_long$StartLatitude_N, na.rm = T)
+
+min_lon <- min(temp_long$StartLongitude_W, na.rm = T)
+max_lon <- max(temp_long$StartLongitude_W, na.rm = T)
+
+temp_long$collection_year <- as.factor(temp_long$collection_year)
+
+temp_filtered <- temp_long %>%
+  filter(collection_year %in% c("2017", "2019")) %>%
+  filter(CommonName %in% c("Arctic cod", "Walleye pollock"))
+  
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = temp_filtered, aes(x=StartLongitude_W, y=StartLatitude_N, 
+                                       color = ifelse(count > 0, count, NA))) +
+  scale_color_gradient(low = "blue", high = "red", na.value = "black") +  # Color gradient for counts
+  facet_grid(collection_year~CommonName) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "count") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+plot proportions of catch - this includes all species of gadids in calcuation of proportion
+```{r}
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = temp_filtered, aes(x=StartLongitude_W, y=StartLatitude_N, 
+                                       color = ifelse(prop > 0, prop, NA))) +
+  scale_color_gradient(low = "blue", high = "red", na.value = "black") +  # Color gradient for counts
+  facet_grid(collection_year~CommonName) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "proportion") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+bin by latitude and calculate relative proportions of gadids 
+```{r}
+df_bins <- temp_long %>%
+  mutate(lat_bin = ifelse(StartLatitude_N <= 66, "<66", NA),
+         lat_bin = ifelse(StartLatitude_N > 66 & StartLatitude_N < 68, "66-68", lat_bin),
+         lat_bin = ifelse(StartLatitude_N > 68 & StartLatitude_N < 70, "68-70", lat_bin),
+         lat_bin = ifelse(StartLatitude_N > 70 & StartLatitude_N < 72, "70-72", lat_bin),
+         lat_bin = ifelse(StartLatitude_N >= 72, ">72", lat_bin))
+
+bin_summary <- df_bins %>%
+  group_by(collection_year, lat_bin, CommonName) %>%
+  summarise(count = sum(count)) %>%
+  ungroup() %>%
+  group_by(collection_year, lat_bin) %>%
+  mutate(total = sum(count),
+            prop = count/total)
+
+my_order <- c("<66", "66-68", "68-70", "70-72", ">72")
+
+bin_summary$lat_bin <- factor(bin_summary$lat_bin, levels = my_order)
+
+#calculate sample sizes 
+samp_size <- bin_summary %>%
+  group_by(collection_year, lat_bin) %>%
+  summarize(total_samples = sum(count, na.rm = T))
+```
+
+
+```{r}
+bin_summary %>%
+  filter(collection_year %in% c("2017", "2019")) %>%
+  ggplot(aes(x=CommonName, y=lat_bin, fill = prop)) +
+  geom_tile() + 
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Adjust color scale as needed
+  #geom_text(data = samp_size, aes(x=lat_bin, y = total_samples + 2, label = total_samples)) +
+  facet_grid(~collection_year) + 
+  labs(title = "Heatmap of Species Proportion by Latitude",
+       x = "Species",
+       y = "Latitude",
+       fill = "Proportion of Total Catch") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability
+```
+
+
+okay, going back to temp_long and going to treat each haul as it if were a bottle of water for eDNA 
+and calculate the number of hauls with positive detections per latitude bin 
+
+```{r}
+df_temp <- df_bins %>%
+  mutate(pres = ifelse(count > 0, 1, 0)) %>%
+  select(!total) %>%
+  select(!prop) %>%
+  select(!count) %>%
+  pivot_wider(names_from = "CommonName", values_from = "pres") %>%
+  group_by(collection_year, lat_bin) %>%
+  summarise(unique_hauls = n(),
+            AC = sum(`Arctic cod`),
+            WP = sum(`Walleye pollock`),
+            PC = sum(`Pacific cod`),
+            SC = sum(`Saffron cod`),
+            PolC = sum(`Polar cod`),
+            prop_AC = AC/unique_hauls,
+            prop_WP = WP/unique_hauls,
+            prop_PC = PC/unique_hauls,
+            prop_SC = SC/unique_hauls,
+            prop_PolC = PolC/unique_hauls)
+          
+df_prop_w_pos <- df_temp %>%
+  select(collection_year, lat_bin, prop_AC, prop_WP, prop_PC, prop_SC, prop_PolC) %>%
+  pivot_longer(cols = c(3:7), values_to = "prop", names_to = "taxon") %>%
+  mutate(CommonName = ifelse(taxon == "prop_AC", "Arctic cod", NA),
+         CommonName = ifelse(taxon == "prop_WP", "Walleye pollock", CommonName),
+         CommonName = ifelse(taxon == "prop_PC", "Pacific cod", CommonName),
+         CommonName = ifelse(taxon == "prop_SC", "Saffron cod", CommonName),
+         CommonName = ifelse(taxon == "prop_PolC", "Polar cod", CommonName))
+
+df_prop_w_pos $lat_bin <- factor(df_prop_w_pos$lat_bin, levels = my_order)
+
+df_prop_w_pos %>%
+  filter(collection_year %in% c("2017", "2019")) %>%
+  ggplot(aes(x=CommonName, y=lat_bin, fill = prop)) +
+  geom_tile() + 
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Adjust color scale as needed
+  #geom_text(data = samp_size, aes(x=lat_bin, y = total_samples + 2, label = total_samples)) +
+  facet_grid(~collection_year) + 
+  labs(title = "Heatmap of Proportion of Hauls with Detection",
+       x = "Species",
+       y = "Latitude",
+       fill = "Proportion of Hauls with Detection") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability    
+```
+
+how many bottle of water where collected in each year at each lat bin? 
+```{r}
+df_temp %>%
+  select(collection_year, lat_bin, unique_hauls)
+```
+
+
+
+read in the sst file 
+```{r}
+load("data/sst.mon.mean.Rdata")
+
+gadid_time <- c("2017-09-01", #"2017-10-01", "2017-11-01",
+              "2019-09-01") #, "2019-10-01", "2019-11-01")) #,
+              #"2021-09-01", "2021-10-01", "2021-11-01", 
+              #"2023-09-01", "2023-10-01", "2023-11-01")
+
+gadid_nc <- subset_nc %>%
+  filter(time %in% gadid_time) %>%
+  mutate(collection_year = ifelse(time == "2017-09-01", "2017", NA),
+         collection_year = ifelse(time == "2019-09-01", "2019", collection_year))
+
+temp_filtered_2 <- temp_filtered %>%
+  mutate(long = StartLongitude_W + 360)
+
+ggplot() + 
+  geom_raster(data = gadid_nc, aes(lon, lat, fill = sst)) +
+  scale_fill_gradient(low = "darkblue", high = "lightblue") +  # Adjust colors as needed
+  geom_point(data = temp_filtered_2, aes(x=long, y=StartLatitude_N, 
+                                       color = ifelse(prop > 0, prop, NA))) +
+  scale_color_gradient(low = "yellow", high = "red", na.value = "black") +  # Color gradient for counts
+  facet_grid(~collection_year) + 
+  theme_minimal() + 
+  theme(panel.grid.major = element_blank(),  # Remove major grid lines
+        panel.grid.minor = element_blank())  # Remove minor grid lines
+```
+
+
+
+
+
+make simple ggplot for year and species 
+```{r}
+temp %>%
+  filter(collection_year %in% c(2017, 2019)) %>%
+  ggplot() +
+  geom_point(aes(x=StartLongitude_W, y=StartLatitude_N, color = CommonName)) +
+  facet_wrap(collection_year~CommonName) + 
+  theme_minimal()
+```
+
+
+

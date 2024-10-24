@@ -1,0 +1,503 @@
+---
+title: "chukchi catch"
+output: html_document
+date: "2024-10-22"
+---
+
+```{r}
+library(tidyverse)
+```
+
+read in the chukchi catch data from 2012 and 2013 that Matt extracted from AKFIN 
+```{r}
+chukchi_catch <- readRDS("/home/kimberly.ledger/dbo_metabarcoding/data/chukchi_catch.RDS")
+
+tsn_codes <- httr::content(
+    httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/basis_tsn'),
+    type = "application/json") %>%
+  bind_rows() %>%
+  rename_with(tolower) %>%
+  dplyr::rename(speciestsn = tsn) %>%
+  select(speciestsn, commonname, scientificname)
+
+chukchi_catch <- chukchi_catch %>%
+  left_join(tsn_codes, by = "speciestsn")
+
+catch_summary <- chukchi_catch %>%
+  group_by(sampleyear, commonname, scientificname) %>%
+  summarize(catchwt = sum(totalcatchwt),
+            catchnum = sum(totalcatchnum)) 
+```
+
+how many stations were sampled per year? 
+```{r}
+chukchi_catch %>%
+  group_by(sampleyear) %>%
+  summarise(unique_stations = n_distinct(stationid))
+```
+
+get full taxonomic info for the taxa caught
+```{r}
+library(taxize)
+
+tax <- chukchi_catch %>%
+  select(speciestsn, commonname, scientificname) %>%
+  unique() %>%
+  mutate(speciestsn = as.numeric(speciestsn)) %>%
+  filter(!speciestsn <= 99)
+
+taxonomy_info <- classification(tax$speciestsn, db = "itis")
+
+# Remove any NULL or empty results from the list
+taxonomy_info_clean <- taxonomy_info %>%
+  keep(~ !is.null(.)) %>%     # Keep only non-null elements
+  discard(~ nrow(.) == 0)     # Discard empty data frames
+
+# Convert the list of taxonomies into a dataframe
+taxonomy_df <- taxonomy_info_clean %>%
+  bind_rows(.id = "speciestsn") %>%
+  select(!id) %>%
+  pivot_wider(names_from = rank, values_from = name)
+
+# Convert tsn_id to numeric so it can join easily
+taxonomy_df$speciestsn <- as.numeric(taxonomy_df$speciestsn)
+```
+
+explore the taxonomy a bit - just the fishes 
+```{r}
+tax_out <- taxonomy_df %>%
+  filter(class == "Teleostei") %>%
+  select(speciestsn, order, family, genus, species) %>%
+  arrange(order)
+
+temp <- chukchi_catch %>%
+  select(speciestsn, commonname, scientificname) %>%
+  mutate(speciestsn = as.numeric(speciestsn)) %>%
+  filter(speciestsn > 160000) %>%
+  filter(speciestsn < 180000) %>%
+  unique()
+
+temp_w_tax <- temp %>%
+  left_join(tax_out)
+```
+
+
+
+join taxonomy to catch 
+```{r}
+chukchi_catch_w_tax <- chukchi_catch %>%
+  mutate(speciestsn = as.numeric(speciestsn)) %>%
+  left_join(taxonomy_df)
+```
+
+
+```{r}
+fish_catch <- chukchi_catch_w_tax %>%
+  filter(class == "Teleostei")
+```
+
+double check species in catch 
+```{r}
+fish_catch %>%
+  select(speciestsn, commonname, scientificname) %>%
+  unique()
+```
+
+will need to think about how genus-level, etc ids get counted... 
+
+
+```{r}
+fish_catch %>%
+  filter(order == "Gadiformes") %>%
+  select(commonname) %>%
+  unique()
+```
+
+
+pivot wider and remove 2010 samples and stations <60N
+```{r}
+fish_wide <- fish_catch %>%
+  filter(sampleyear != 2010) %>%
+  filter(!is.na(scientificname)) %>%
+  filter(!is.na(totalcatchnum)) %>%
+  filter(eq_latitude >= 60) %>%
+  select(stationid, totalcatchnum, scientificname) %>%
+  pivot_wider(names_from = scientificname, values_from = totalcatchnum, values_fn = sum, values_fill = 0)
+```
+
+station metadata of interest - will need to see if i can track down temp, salinity, etc..
+need to ask someone about sample method code 
+```{r}
+chuk_meta <- chukchi_catch %>%
+  filter(sampleyear != 2010) %>%
+  filter(eq_latitude >= 60) %>%
+  select(stationid, sampleyear, vesselcode.x, stationnumber.x, hauldate, eq_latitude, eq_longitude) %>%
+  unique()
+```
+
+leftjoin the catch to the metadata to fill in trawls with nothing
+```{r}
+fish_wide_all_stations <- chuk_meta %>%
+  left_join(fish_wide, by = "stationid")
+```
+
+okay, for multivariate analyses i can't have any empty rows (stations with no fish) so i'll need to remove those 
+```{r}
+fish_wide_filtered <- fish_wide_all_stations %>%
+  filter(rowSums(select(., 8:ncol(.)), na.rm = TRUE) != 0)            
+
+fish_totalcatchnum <- fish_wide_filtered[,-c(1:7)] 
+
+fish_binary <- fish_wide_filtered[,-c(1:7)] %>%
+   mutate(across(everything(), ~ ifelse(is.na(.), 0, ifelse(. > 0, 1, 0))))
+  
+fish_meta <- fish_wide_filtered[,c(1:7)]  
+
+binary_dist<- vegdist(fish_binary, method = "jaccard")
+
+# Run PERMANOVA with latitude as the predictor
+binary_lat <- adonis2(binary_dist ~ fish_meta$eq_latitude, permutations = 999)
+binary_lat
+binary_year <- adonis2(binary_dist ~ as.factor(fish_meta$sampleyear), permutations = 999)
+binary_year
+```
+
+check dispersion for sampling year
+```{r}
+dispersion <- betadisper(binary_dist, as.factor(fish_meta$sampleyear))
+
+# Step 2: Perform a permutation test for multivariate homogeneity of group dispersions (PERMDISP)
+dispersion_test <- permutest(dispersion, permutations = 999)
+
+# Step 3: View the results of the test
+print(dispersion_test)
+
+# Step 4: Optionally, visualize the distances to group centroids
+plot(dispersion)
+boxplot(dispersion, main = "Group Dispersion by Year")
+```
+
+
+# Fit the dbRDA model - using capscale() - constrained analysis of principal coordinates
+```{r}
+rda_index <- capscale(fish_binary ~ fish_meta$eq_latitude + as.factor(fish_meta$sampleyear), distance = "jaccard")  ## need to change variable name at somepoint to avoid confusion...
+
+anova_terms <- anova(rda_index, by = "terms", permutations = 999)
+anova_terms 
+
+summary(rda_index)
+
+# Assuming capscale_model is already defined
+eigenvalues <- rda_index$CA$eig
+total_inertia <- sum(eigenvalues)
+
+# Calculate proportion explained for CAP1 and CAP2
+proportion_variance <- eigenvalues / total_inertia * 100
+
+# First use the regular plot option to get a feel for the data
+plot(rda_index, scaling = 2, choices = c(1,2))
+#plot(rda_index, scaling = 2, choices = c(1,3))
+
+
+# Extract site and species scores
+site_scores <- as.data.frame(vegan::scores(rda_index, display = "sites", choices = 1:3))
+#site_scores <- as.data.frame(rda_index$CCA$u[, 1:3])
+site_scores$Sample <- rownames(site_scores)  # Add sample names
+
+species_scores <- as.data.frame(vegan::scores(rda_index, display = "species", choices = 1:3))
+#species_scores <- as.data.frame(rda_index$CCA$v[, 1:3])
+species_scores$Species <- rownames(species_scores)  # Add species names
+
+# Extract biplot arrows (for explanatory variables)
+biplot_arrows <- as.data.frame(vegan::scores(rda_index, display = "bp", choices = 1:3))
+#biplot_arrows <- as.data.frame(rda_index$CCA$biplot[, 1:3])
+biplot_arrows$variable <- rownames(biplot_arrows)
+
+biplot_arrows <- biplot_arrows %>%
+  mutate(variable = ifelse(variable == "fish_meta$eq_latitude", "latitude", variable),
+         #variable = ifelse(variable == "meta_for_nmds$depth", "depth", variable),
+         variable = ifelse(variable == "as.factor(fish_meta$sampleyear)2013", "year_2013", variable),
+         variable = ifelse(variable == "as.factor(fish_meta$sampleyear)2017", "year_2017", variable),
+         variable = ifelse(variable == "as.factor(fish_meta$sampleyear)2019", "year_2019", variable)) #,
+         #variable = ifelse(variable == "meta_for_nmds$temp_C", "temperature", variable),
+         #variable = ifelse(variable == "meta_for_nmds$salinity", "salinity", variable))
+
+## Plot CAP1 vs CAP2 - color sites by latitude
+plot_lat <- ggplot() +
+  # Plot site scores
+  geom_point(data = site_scores, aes(x = CAP1, y = CAP2, color = fish_meta$eq_latitude), size = 3) +
+  #geom_text_repel(data = site_scores, aes(x = CAP1, y = CAP2, label = Sample), size = 4) +
+  scale_color_viridis(option = "cividis",  direction = -1) +
+  
+  # Plot species scores
+  geom_point(data = species_scores, aes(x = CAP1, y = CAP2), color = "red", size = 2) +
+  geom_text_repel(data = species_scores, aes(x = CAP1, y = CAP2, label = Species), color = "red", size = 2) +
+  
+  # Plot arrows
+  geom_segment(data = biplot_arrows, aes(x = 0, y = 0, xend = CAP1, yend = CAP2), 
+               arrow = arrow(length = unit(0.3, "cm")), color = "black") + # Plot biplot arrows
+  geom_text(data = biplot_arrows, aes(x = CAP1 * 1.1, y = CAP2 * 1.1, label = variable), color = "black") + # Label arrows
+  
+  # Add labels and theme
+  labs(title = "CAP Plot", 
+       x = paste("CAP1 (", round(proportion_variance[1], 2), "% variance explained)", sep = ""), 
+       y = paste("CAP2 (", round(proportion_variance[2], 2), "% variance explained)", sep = ""),
+       color = "latitude") +
+  theme_minimal() #+
+  #theme(legend.position = "none")
+
+
+## Plot CAP1 vs CAP2 - color sites by year
+plot_year <- ggplot() +
+  # Plot site scores
+  geom_point(data = site_scores, aes(x = CAP1, y = CAP2, color = as.factor(fish_meta$sampleyear)), size = 3) +
+  #geom_text_repel(data = site_scores, aes(x = CAP1, y = CAP2, label = Sample), size = 4) +
+  
+  # Plot species scores
+  geom_point(data = species_scores, aes(x = CAP1, y = CAP2), color = "black", size = 2) +
+  geom_text_repel(data = species_scores, aes(x = CAP1, y = CAP2, label = Species), color = "black", size = 2) +
+  
+  # Plot arrows
+  geom_segment(data = biplot_arrows, aes(x = 0, y = 0, xend = CAP1, yend = CAP2), 
+               arrow = arrow(length = unit(0.3, "cm")), color = "black") + # Plot biplot arrows
+  geom_text(data = biplot_arrows, aes(x = CAP1 * 1.1, y = CAP2 * 1.1, label = variable), color = "black") + # Label arrows
+  
+  # Add labels and theme
+  labs(title = "CAP Plot", 
+       x = paste("CAP1 (", round(proportion_variance[1], 2), "% variance explained)", sep = ""), 
+       y = paste("CAP2 (", round(proportion_variance[2], 2), "% variance explained)", sep = ""),  
+       color = "year") +
+  theme_minimal() #+
+  #theme(legend.position = "none")
+
+plot_lat
+plot_year
+```
+
+
+hierarchial cluster analysis 
+```{r}
+#let's just go with one year of data for now...
+sub_2013 <- fish_wide_filtered %>%
+  filter(sampleyear == 2013)
+
+meta_2013 <- sub_2013[,c(1:7)]
+fish_2013 <- sub_2013[,-c(1:7)]
+
+dist_2013 <- vegdist(fish_2013, method = "jaccard")
+
+# Cluster Dendrogram
+hc <- hclust(dist_2013, method = "ward.D2")
+plot(hc, labels = meta_2013$stationid)
+
+#groups <- cutree(hc, k = 2)   ## just starting with k=3
+#adonis2(dist_2013 ~ groups)
+
+# Number of clusters to evaluate
+k.max <- 10
+wss <- numeric(k.max)
+
+# Loop through k values to calculate WSS
+for (k in 1:k.max) {
+  # Cut the dendrogram into k groups
+  cluster_assignment <- cutree(hc, k)
+  
+  # Calculate total within-cluster sum of squares
+  wss[k] <- sum(sapply(unique(cluster_assignment), function(cluster) {
+    sum((dist(fish_2013[cluster_assignment == cluster, ])^2))  # Sum of squares for each cluster
+  }))
+}
+
+# Plot the elbow curve
+plot(1:k.max, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of Clusters (k)", 
+     ylab = "Total Within-Cluster Sum of Squares (WSS)",
+     main = "Elbow Method for Optimal k")
+
+groups <- cutree(hc, k = 4)   ## just starting with k=3
+adonis2(dist_2013 ~ groups)
+
+plot(hc, labels = meta_2013$stationid)
+rect.hclust(hc, k = 4, border = "red")  # You can specify color here
+
+
+#library(ggdendro)
+#ggdendrogram(hc)
+
+library(dendextend)
+# Create a dendrogram object
+dend <- as.dendrogram(hc)
+# Create a color palette (e.g., blue to red gradient based on latitude)
+latitudes <- meta_2013$eq_latitude
+color_palette <- colorRampPalette(c("blue", "red"))(length(latitudes))
+# Map latitudes to colors
+latitude_colors <- color_palette[rank(latitudes)]  # Rank the latitudes and assign colors
+# Assign these colors to the labels (tips) of the dendrogram
+labels_colors(dend) <- latitude_colors
+# Plot the dendrogram with colored tips based on latitude
+plot(dend, main = "Dendrogram with Tips Colored by Latitude")
+rect.hclust(hc, k = 4, border = "red")  # You can specify color here
+
+```
+
+okay, not all groups are predicted by latitude 
+
+run similarity percentages (SIMPER) analysis using vegan
+```{r}
+simper_out <- simper(fish_2013, group = groups)
+simper_out
+
+temp <- summary(simper_out)
+
+# take output out into a single dataframe 
+# Initialize an empty data frame
+combined_df <- data.frame()
+# Loop through the list to combine data frames
+for (group_name in names(simper_out)) {
+  # Extract the current data frame
+  temp_df <- simper_out[[group_name]]
+  
+  # Add a new column with the group name
+  temp_df$Group <- group_name
+  
+  # Combine with the main data frame
+  combined_df <- bind_rows(combined_df, temp_df)
+}
+
+# what species have p < 0.05
+simper_sign <- combined_df %>%
+  filter(average > 0) %>%
+  filter(p <= 0.05)
+```
+
+arctic cod and herring are driving station clusters 
+
+now i want to plot those cluster onto a map to visualize any location patterns 
+```{r}
+meta_2013$group <- groups
+```
+
+load libraries
+```{r}
+library(rnaturalearth)
+library(rnaturalearthdata)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+```
+
+```{r}
+min_lat <- min(meta_2013$eq_latitude, na.rm = T)
+max_lat <- max(meta_2013$eq_latitude, na.rm = T)
+
+min_lon <- min(meta_2013$eq_longitude, na.rm = T)
+max_lon <- max(meta_2013$eq_longitude, na.rm = T)
+
+meta_2013$group <- as.factor(meta_2013$group)
+  
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = meta_2013, aes(x=eq_longitude, y=eq_latitude, color = group)) +
+  #scale_color_gradient(low = "blue", high = "red", na.value = "black") +  # Color gradient for counts
+  #facet_grid(collection_year~CommonName) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "count") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+
+indicator species
+```{r}
+library(labdsv)
+
+# Perform indicator species analysis
+indicator_year <- indval(fish_binary, fish_meta$sampleyear, perm = 999)
+summary(indicator_year)
+```
+
+```{r}
+# this only works for categorical variables, so let me make some dummy groups for this 
+binned_lat <- cut(fish_meta$eq_latitude, breaks = quantile(fish_meta$eq_latitude, probs = seq(0,1,0.25)), include.lowest = TRUE)
+
+#meta_for_nmds <- meta_for_nmds %>%
+#  mutate(latitude_group = ifelse(latitude <= 65, "low", NA),
+#         latitude_group = ifelse(latitude > 65 & latitude < 71, "middle", latitude_group),
+#         latitude_group = ifelse(latitude >= 71, "high", latitude_group))
+
+#indicator_latitude<- indval(index_df_wide[,-1], meta_for_nmds$latitude_group, perm = 999)
+indicator_latitude<- indval(fish_binary, binned_lat, perm = 999)
+indicator_latitude
+summary(indicator_latitude)
+```
+
+taxa richness (fish only) by year and latitude
+```{r}
+taxon_table_with_year_and_lat <- cbind(fish_meta$sampleyear, fish_meta$eq_latitude, fish_binary)
+colnames(taxon_table_with_year_and_lat)[1] <- "year"  # Rename the year column
+colnames(taxon_table_with_year_and_lat)[2] <- "latitude"
+#colnames(taxon_table_with_year_and_lat)[3] <- "depth"
+#colnames(taxon_table_with_year_and_lat)[4] <- "temp"
+
+# Exclude the "year" column and calculate species richness using rowSums
+taxon_table_with_year_and_lat <- taxon_table_with_year_and_lat %>%
+  mutate(richness = rowSums(select(., -c(year,latitude)) > 0))
+
+ggplot(taxon_table_with_year_and_lat, aes(x = latitude, y = richness, color = as.factor(year))) +
+  geom_point() +   # Scatter plot points
+  geom_smooth(method = "loess", se = TRUE) +  # Smoothed line (loess curve)
+  labs(x = "Latitude", y = "Taxa Richness", title = "Species Richness by Latitude", color = "latitude") +
+  theme_minimal()                 # Apply a clean minimal theme
+
+```
+
+much higher spp richness ~70N in 2017 than in other years 
+- need to check how taxa were id'd - ie make sure level of classifications is consistent over the years
+
+check out what's going on with arctic cod and pollock by latitude 
+disclaimer:  i don't believe this version of the data has been corrected for the mis-id'd cod
+
+```{r}
+fish_wide_all_stations <- fish_wide_all_stations %>%
+  mutate(lat_bin = ifelse(eq_latitude <= 64, "<64", NA),
+         lat_bin = ifelse(eq_latitude > 64 & eq_latitude <= 66, "64-66", lat_bin),
+         lat_bin = ifelse(eq_latitude > 66 & eq_latitude <= 68, "66-68", lat_bin),
+         lat_bin = ifelse(eq_latitude > 68 & eq_latitude <= 70, "68-70", lat_bin),
+         lat_bin = ifelse(eq_latitude > 70 & eq_latitude <= 72, "70-72", lat_bin),
+         lat_bin = ifelse(eq_latitude > 72, ">72", lat_bin))
+
+haul_summary <- fish_wide_all_stations %>%
+  group_by(sampleyear, lat_bin) %>%
+  summarise(unique_hauls = n(),
+            AC = sum(`Boreogadus saida` > 0),
+            WP = sum(`Gadus chalcogrammus` > 0),
+            prop_AC = AC/unique_hauls,
+            prop_WP = WP/unique_hauls)
+
+my_order <- c("<64", "64-66", "66-68", "68-70", "70-72", ">72")
+
+haul_summary$lat_bin <- factor(haul_summary$lat_bin, levels = my_order)
+
+df_prop_w_pos <- haul_summary %>%
+  select(sampleyear, lat_bin, prop_AC, prop_WP) %>% #  , prop_PC, prop_SC, prop_PolC) %>%
+  pivot_longer(cols = c(3:4), values_to = "prop", names_to = "taxon") %>%
+  mutate(CommonName = ifelse(taxon == "prop_AC", "Arctic cod", NA),
+         CommonName = ifelse(taxon == "prop_WP", "Walleye pollock", CommonName)) #,
+         #CommonName = ifelse(taxon == "prop_PC", "Pacific cod", CommonName),
+         #CommonName = ifelse(taxon == "prop_SC", "Saffron cod", CommonName),
+         #CommonName = ifelse(taxon == "prop_PolC", "Polar cod", CommonName))
+
+df_prop_w_pos %>%
+  ggplot(aes(x=CommonName, y=lat_bin, fill = prop)) +
+  geom_tile() + 
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Adjust color scale as needed
+  #geom_text(data = samp_size, aes(x=lat_bin, y = total_samples + 2, label = total_samples)) +
+  facet_grid(~sampleyear) + 
+  labs(title = "Heatmap of Proportion of Hauls with Detection",
+       x = "Species",
+       y = "Latitude",
+       fill = "Proportion of Hauls with Detection") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability  
+
+```
+
+okay, general trends are there but the data is very messy. 

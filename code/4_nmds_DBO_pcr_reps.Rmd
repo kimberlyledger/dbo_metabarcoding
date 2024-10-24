@@ -20,8 +20,7 @@ library(ggrepel)
 
 the data 
 ```{r}
-#taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_filtered.csv") %>%
-taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_all.csv") %>%
+taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_pcr_reps.csv") %>%
   select(!X)  %>%
   filter(sample_type == "sample")
 
@@ -66,32 +65,28 @@ taxon_table <- taxon_table %>%
   filter(taxon %in% dbo_taxa$taxon) %>%
   filter(class == "Actinopteri")                 ### remove marine mammals! 
 
-#also will remove any taxa that only pop up in a single extraction across all DBO samples
-taxa_in_one_extract <- taxon_table %>%
+#also will remove any taxa that only pop up in a PCR rep across all DBO samples
+taxa_in_one_pcr_rep <- taxon_table %>%
   filter(tot_reads > 0) %>%
   group_by(taxon) %>%
   summarize(num = n()) %>%
   filter(num == 1)
 
 taxon_table <- taxon_table %>%
-  filter(!taxon %in% taxa_in_one_extract$taxon)
+  filter(!taxon %in% taxa_in_one_pcr_rep$taxon)
 
 #check number of reads per extraction - with these additional filters some may have dropped 
 taxon_table %>%
-  group_by(extraction_ID) %>%
+  group_by(full_ID) %>%
   summarize(reads = sum(tot_reads)) %>%
   arrange(reads)
 
-less_than_100r <- taxon_table %>%
-  group_by(extraction_ID) %>%
-  summarize(reads = sum(tot_reads)) %>%
-  arrange(reads) %>%
-  filter(reads <100)
-
-#remove the extraction that now had no reads
+#remove the pcr reps that now have no or very very few reads
 taxon_table <- taxon_table %>%
-   #filter(extraction_ID != "E1066.SKQ2021")
-  filter(!extraction_ID %in% less_than_100r$extraction_ID)
+   filter(full_ID != "E1066.SKQ2021_NA") %>%
+  filter(full_ID != "E1067.SKQ2021_NA") %>%
+  filter(full_ID != "E1028.SKQ2021_NA") %>%
+  filter(full_ID != "e04214_B")
 
 #remove the high latitude station (CK9) from 2023 with VERY DEEP samples - might want to add back in to dataset, but just want to make sure it's not responsible for driving lat or depth patterns 
 taxon_table <- taxon_table %>%
@@ -103,7 +98,8 @@ taxon_table <- taxon_table %>%
 #check the number of taxa per extraction
 taxon_table %>%
   filter(tot_reads > 0) %>%
-  group_by(extraction_ID) %>%
+  #group_by(extraction_ID) %>%
+  group_by(full_ID) %>%
   summarize(n_taxa = n()) %>%
   arrange(n_taxa)
 ```
@@ -114,17 +110,16 @@ set up two types of distance matrices
 
 let me work with just the minimum info for now - remove extraction ID's with no reads 
 ```{r}
-taxa_df <- taxon_table[,c(1,6,13)] %>%
+taxa_df <- taxon_table[,c(1,2,8,15)] %>%
   filter(!is.na(tot_reads)) %>%
   rename(reads = tot_reads)
 
-
 ## TRY running 2021 and 2023 data separately 
-taxon_table_2021 <- taxon_table %>%
-  filter(collection_year == 2021) 
+#taxon_table_2021 <- taxon_table %>%
+#  filter(collection_year == 2021) 
 
-taxon_table_2023 <- taxon_table %>%
-  filter(collection_year == 2023) 
+#taxon_table_2023 <- taxon_table %>%
+#  filter(collection_year == 2023) 
 
 #taxa_df <- taxon_table_2021[,c(1,6,13)] %>%
 #taxa_df <- taxon_table_2023[,c(1,6,13)] %>%
@@ -137,19 +132,19 @@ calculate eDNA index according to Kelly et al. 2019
 library(vegan)
 
 index_df <- taxa_df %>%
-    group_by(extraction_ID) %>%
+    group_by(full_ID) %>%
     mutate(Tot = sum(reads),
               Prop = reads / Tot) %>% ## this creates the proportion on each bottle replicate
     select(-reads, -Tot) %>%
    pivot_wider(names_from = taxon, values_from = Prop)
   
-ids <- index_df$extraction_ID
-index_df <- index_df[,-1]
+ids <- index_df$full_ID
+index_df <- index_df[,-c(1:2)]
 
 wis_index <- wisconsin(index_df)
 
 rowSums(wis_index)
-wis_index$extraction_ID <- ids
+wis_index$full_ID <- ids
 ```
 
 
@@ -158,35 +153,40 @@ let me compare tables
 reads_df_wide <- taxa_df %>%
   pivot_wider(names_from = taxon, values_from = reads)
 
-rowSums(reads_df_wide[,-1])
-colSums(reads_df_wide[,-1])
-dim(reads_df_wide[,-1])
-any(duplicated(reads_df_wide[,-1]))
-
+#rowSums(reads_df_wide[,-1])
+#colSums(reads_df_wide[,-1])
+#dim(reads_df_wide[,-1])
+#any(duplicated(reads_df_wide[,-1]))
 
 binary_df_wide <- taxa_df %>%
   mutate(pres = ifelse(reads > 0, 1, 0)) %>%
   select(!reads) %>%
   pivot_wider(names_from = taxon, values_from = pres)
 
-any(duplicated(binary_df_wide[,-1]))
+#any(duplicated(binary_df_wide[,-1]))
 
 index_df_wide <- wis_index %>%
-  select(extraction_ID, everything())
+  select(full_ID, everything())
 ```
+
 
 get some metadata to run multivariate analyses 
 for now, i'm going to just work with field samples (i.e. ignore any reads in remaining field negatives, etc)
 ```{r}
-meta_for_nmds <- metadata_join  %>%
+meta <- metadata_join  %>%
   filter(sample_type == "sample") %>%
   select(extraction_ID, collection_year, location1, location2, depth, longitude, latitude, Collection_Time_local, temp_C, salinity) %>%
   mutate(depth = as.numeric(depth)) %>%
   mutate(depth_cat = ifelse(depth <= 11, "10m", NA),
          depth_cat = ifelse(depth == 24.2, "30m", depth_cat),    ## binning
          depth_cat = ifelse(depth == 30, "30m", depth_cat),
-         depth_cat = ifelse(depth > 30, "bottom", depth_cat)) %>%
-  filter(extraction_ID %in% reads_df_wide$extraction_ID)
+         depth_cat = ifelse(depth > 30, "bottom", depth_cat)) 
+
+meta_for_nmds <- reads_df_wide%>%
+  left_join(meta, by = "extraction_ID") 
+
+meta_for_nmds <- meta_for_nmds[,-c(3:64)] %>%
+  separate(full_ID, into = c("extraction_ID_2", "replicate"), sep = "_", remove = F)
 ```
 
 
@@ -266,6 +266,7 @@ set the nmds dataset i want to plot
 NMS_data <- index_NMS_6
 #NMS_data <- reads_NMS #not going to explore this one, nmds value are very very small
 ```
+
 
 ```{r}
 #create vectors with the NMS attributes
@@ -504,7 +505,7 @@ plot(meta_for_nmds$latitude ~ meta_for_nmds$time_of_day_posix, col = meta_for_nm
 
 
 ```{r}
-binary_dist <- vegdist(binary_df_wide[,-1], method = "jaccard")
+binary_dist <- vegdist(binary_df_wide[,-c(1,2)], method = "jaccard")
 
 # Run PERMANOVA with latitude as the predictor
 binary_lat <- adonis2(binary_dist ~ meta_for_nmds$latitude, permutations = 999)
@@ -519,6 +520,8 @@ binary_temp <- adonis2(binary_dist ~ meta_for_nmds$temp_C, permutations = 999)
 binary_temp
 binary_salinity <- adonis2(binary_dist ~ meta_for_nmds$salinity, permutations = 999)
 binary_salinity
+binary_replicate <- adonis2(binary_dist ~ meta_for_nmds$replicate, permutations = 999)
+binary_replicate
 
 # Convert the time to POSIXct (or POSIXlt)
 time_posix <- strptime(meta_for_nmds$Collection_Time_local, format = "%H:%M")
@@ -549,10 +552,11 @@ index_salinity <- adonis2(index_dist ~ meta_for_nmds$salinity, permutations = 99
 index_salinity
 index_tod <- adonis2(index_dist ~ meta_for_nmds$numeric_hours, permutations = 999)
 index_tod
+index_replicate <- adonis2(index_dist ~ meta_for_nmds$replicate, permutations = 999)
+index_replicate
 ```
 
-significant continuous: latitude, depth (and now temp and salinity)
-significant categorical: year
+when working at pcr replicate level, now everything is significant... maybe somethings is wrong here... 
 
 ## conduct PERMDISP (Permutational Multivariate Dispersion Test) for significant PERMANOVA results
 - only for CATEGORICAL PREDICTORS 
@@ -584,12 +588,7 @@ let me try a distance-based redundancy analysis (dbRDA) for continuous variables
 ```{r}
 # Fit the dbRDA model - using capscale() - constrained analysis of principal coordinates
 
-#rda_index <- capscale(index_df_wide[,-1] ~ meta_for_nmds$latitude + meta_for_nmds$depth + as.factor(meta_for_nmds$collection_year) + meta_for_nmds$temp_C + meta_for_nmds$salinity, distance = "bray")
-
-## for just one year of data
-rda_index <- capscale(index_df_wide[,-1] ~ meta_for_nmds$latitude + meta_for_nmds$depth + meta_for_nmds$temp_C + meta_for_nmds$salinity, distance = "bray")
-
-#rda_index <- capscale(binary_df_wide[,-1] ~ meta_for_nmds$latitude + meta_for_nmds$depth + as.factor(meta_for_nmds$collection_year), distance = "jaccard")  ## need to change variable name at somepoint to avoid confusion...
+rda_index <- capscale(index_df_wide[,-1] ~ meta_for_nmds$latitude + meta_for_nmds$depth + meta_for_nmds$temp_C + meta_for_nmds$salinity + as.factor(meta_for_nmds$collection_year) + as.factor(meta_for_nmds$replicate), distance = "bray")
 
 anova_terms <- anova(rda_index, by = "terms", permutations = 999)
 anova_terms 
@@ -838,8 +837,9 @@ summary(indicator_depth)
 
 taxa richness between 2021 and 2023 (fish only)
 ```{r}
-taxon_table_with_year <- cbind(meta_for_nmds$collection_year, index_df_wide[,-1])
+taxon_table_with_year <- cbind(meta_for_nmds$collection_year, meta_for_nmds$replicate, index_df_wide[,-1])
 colnames(taxon_table_with_year)[1] <- "year"  # Rename the year column
+colnames(taxon_table_with_year)[2] <- "replicate"
 
 # Exclude the "year" column and calculate species richness using rowSums
 taxon_table_with_year <- taxon_table_with_year %>%
@@ -847,33 +847,39 @@ taxon_table_with_year <- taxon_table_with_year %>%
 
 # Group by year and summarize richness
 richness_by_year <- taxon_table_with_year %>%
-  group_by(year) %>%
+  group_by(year, replicate) %>%
   summarise(mean_richness = mean(richness),
             quar_0.25 = quantile(richness, probs = 0.25),
             median_richness = median(richness),
             quar_0.75 = quantile(richness, probs = 0.75),
             total_richness = sum(richness),
             n_samples = n())  # Number of samples per year
-
 richness_by_year
 ```
 
 taxa richness (fish only) by year and latitude and depth
 ```{r}
-taxon_table_with_year_and_lat <- cbind(meta_for_nmds$collection_year, meta_for_nmds$latitude, meta_for_nmds$depth, meta_for_nmds$temp_C, index_df_wide[,-1])
+taxon_table_with_year_and_lat <- cbind(meta_for_nmds$collection_year, meta_for_nmds$latitude, meta_for_nmds$depth, meta_for_nmds$temp_C, meta_for_nmds$replicate, index_df_wide[,-1])
 colnames(taxon_table_with_year_and_lat)[1] <- "year"  # Rename the year column
 colnames(taxon_table_with_year_and_lat)[2] <- "latitude"
 colnames(taxon_table_with_year_and_lat)[3] <- "depth"
 colnames(taxon_table_with_year_and_lat)[4] <- "temp"
+colnames(taxon_table_with_year_and_lat)[5] <- "replicate"
 
 # Exclude the "year" column and calculate species richness using rowSums
 taxon_table_with_year_and_lat <- taxon_table_with_year_and_lat %>%
-  mutate(richness = rowSums(select(., -c(year,latitude,depth)) > 0))
+  mutate(richness = rowSums(select(., -c(year,latitude,depth,temp,replicate)) > 0))
 
 ggplot(taxon_table_with_year_and_lat, aes(x = latitude, y = richness, color = as.factor(year))) +
   geom_point() +   # Scatter plot points
   geom_smooth(method = "loess", se = TRUE) +  # Smoothed line (loess curve)
-  labs(x = "Latitude", y = "Taxa Richness", title = "Species Richness by Latitude", color = "latitude") +
+  labs(x = "Year", y = "Taxa Richness", title = "Species Richness by Latitude", color = "latitude") +
+  theme_minimal()                 # Apply a clean minimal theme
+
+ggplot(taxon_table_with_year_and_lat, aes(x = latitude, y = richness, color = as.factor(replicate))) +
+  geom_point() +   # Scatter plot points
+  geom_smooth(method = "loess", se = FALSE) +  # Smoothed line (loess curve)
+  labs(x = "Replicate", y = "Taxa Richness", title = "Species Richness by Latitude", color = "latitude") +
   theme_minimal()                 # Apply a clean minimal theme
 
 ggplot(taxon_table_with_year_and_lat, aes(x = temp, y = richness, color = latitude)) +
@@ -888,7 +894,7 @@ ggplot(taxon_table_with_year_and_lat, aes(x = temp, y = richness, color = latitu
 run a GAM modeling species richness by latitude, year and depth 
 ```{r}
 # Fit a GAM on species richness
-gam_model_richness <- gam(richness ~ s(latitude) + s(depth) + s(temp) + as.factor(year), 
+gam_model_richness <- gam(richness ~ s(latitude) + s(depth) + s(temp) + as.factor(replicate), 
                            data = taxon_table_with_year_and_lat)
 
 summary(gam_model_richness)

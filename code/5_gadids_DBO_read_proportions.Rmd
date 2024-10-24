@@ -1,26 +1,25 @@
 ---
 title: "dbo gadids"
 output: html_document
-date: "2024-10-16"
+date: "2024-10-18"
 ---
 
 just looking at the gadid detection in the dbo mifish metabarcoding dataset 
 
-some thoughts: since the metabarcoding data targeted all fish, not just gadids, that means the number of reads or proportion of gadid reads per sample is influenced by the non-gadid species present. therefore, i believe the appropriate approach would be to use gadid reads as binary data. and i will try out some proportion of positive technical replicate response variable for bottles/sites to act as a rough proxy for the amount of DNA recovered. 
+some thoughts: even though read proportions (or maybe an eDNA index) might not be the way to go here, let's try it out for comparison with the proportion of gadids in catch. 
+
+and going to work with data version where 2023 pcr reps have been combined 
 
 libraries
 ```{r}
 library(tidyverse)
 library(ggplot2)
 rename <- dplyr::rename
-#library(viridis)
-#library(ggrepel)
 ```
 
 the data 
 ```{r}
-#taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_filtered.csv") %>%
-taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_pcr_reps.csv") %>%
+taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_filtered.csv") %>%
   select(!X)  %>%
   filter(sample_type == "sample")
 
@@ -66,21 +65,18 @@ gadids %>%
          prop_reads = n_reads/gadidae_reads) %>%
   select(collection_year, taxon, prop_reads) %>%
   pivot_wider(names_from = collection_year, values_from = prop_reads)
-  
 ```
 
 okay so gadidae reads make us <1% in each year and gadus made up 4-9% of reads 
 mostly pollock (80% and 50%, respectively) 
-way higher proportion of reads for arctic cod in 2023 than 2021 
-pretty low proportions of pcod (~1-2%)
+much higher proportion of reads for arctic cod in 2023 than 2021 
+pretty low proportions of pcod (~1-2%) overall 
 
 anyway, ~90% of reads go to species level so for now i'll move forward with just the reads that get down to species 
 
-the dataframe i'm working with right now, is already the sum of the three technical replicates for 2023 data - would need to go back a few steps if i want to incorporate variability in tech replicates for 2023 samples (which might be worth it)
-
 pivot gadid table 
 ```{r}
-gadids_wide <- gadids[,c(1,2,3,8,15)] %>%
+gadids_wide <- gadids[,c(1,6,13)] %>%
   pivot_wider(names_from = taxon, values_from = tot_reads)
 ```
 
@@ -92,34 +88,71 @@ gadids_w_meta <- metadata_join %>%
   replace_na(list('Arctogadus glacialis' = 0, 'Boreogadus saida' = 0, 'Eleginus gracilis' = 0, 'Gadidae' = 0, 'Gadus' = 0, 'Gadus chalcogrammus' = 0, 'Gadus macrocephalus' = 0))
 ```
 
-for each station and year (i.e. combine bottles from multiple depths), count the total number of bottles and number of bottles with detections for each species 
+for each station and year (i.e. combine bottles from multiple depths), summarize the data in the following ways: 
+- count the total number of bottles and number of bottles with detections for each species 
 
 ```{r}
-#gadids_w_meta %>%
-#  group_by(collection_year, location1, `Arctogadus glacialis`, `Boreogadus saida`, `Eleginus gracilis`, `Gadus chalcogrammus`, `Gadus macrocephalus`) %>%
-#  summarize(n_bottles = n(),
-#            AG = sum())
+gadid_mb <- gadids_w_meta %>% 
+   mutate(lat_bin = ifelse(latitude <= 64, "<64", NA),
+         lat_bin = ifelse(latitude > 64 & latitude < 66, "64-66", lat_bin), 
+         lat_bin = ifelse(latitude > 66 & latitude < 68, "66-68", lat_bin),
+         lat_bin = ifelse(latitude > 68 & latitude < 70, "68-70", lat_bin),
+         lat_bin = ifelse(latitude > 70 & latitude < 72, "70-72", lat_bin),
+         lat_bin = ifelse(latitude >= 72, ">72", lat_bin)) %>%
+  mutate(AC_pres = ifelse(`Boreogadus saida` > 0, 1, 0),
+         WP_pres = ifelse(`Gadus chalcogrammus` > 0, 1, 0),
+         PC_pres = ifelse(`Gadus macrocephalus` > 0, 1, 0),
+         SC_pres = ifelse(`Eleginus gracilis` > 0, 1, 0),
+         PolC_pres = ifelse(`Arctogadus glacialis` > 0, 1, 0)) %>%
+  group_by(collection_year, lat_bin) %>%
+  summarise(unique_bottles = n(),
+            AC = sum(AC_pres),
+            WP = sum(WP_pres),
+            PC = sum(PC_pres),
+            SC = sum(SC_pres),
+            PolC = sum(PolC_pres),
+            prop_AC = AC/unique_bottles,
+            prop_WP = WP/unique_bottles,
+            prop_PC = PC/unique_bottles,
+            prop_SC = SC/unique_bottles,
+            prop_PolC = PolC/unique_bottles)
 
-pres <- gadids_w_meta %>%
-  group_by(collection_year, location1) %>%
-  summarize(
-    n_bottles = n(),                            # Total number of rows
-    n_AG = sum(`Arctogadus glacialis` > 0, na.rm = TRUE),   # Number of rows where AC > 0
-    n_BS = sum(`Boreogadus saida` > 0, na.rm = TRUE), # Number of rows where BS > 0
-    n_EG = sum(`Eleginus gracilis` > 0, na.rm = TRUE), # Number of rows where EG > 0
-    n_GC = sum(`Gadus chalcogrammus` > 0, na.rm = TRUE), # Number of rows where GC > 0
-    n_GM = sum(`Gadus macrocephalus` > 0, na.rm = TRUE),
-    prop_AG = n_AG/n_bottles, 
-    prop_BS = n_BS/n_bottles,
-    prop_EG = n_EG/n_bottles,
-    prop_GC = n_GC/n_bottles,
-    prop_GM = n_GM/n_bottles) %>%
-  mutate(AG = ifelse(n_AG > 0, 1, 0),
-         BS = ifelse(n_BS > 0, 1, 0),
-         EG = ifelse(n_EG > 0, 1, 0),
-         GC = ifelse(n_GC > 0, 1, 0),
-         GM = ifelse(n_GM > 0, 1, 0))
+my_order <- c("<64", "64-66", "66-68", "68-70", "70-72", ">72")
+gadid_mb$lat_bin <- factor(gadid_mb$lat_bin, levels = my_order)
+  
+mb_prop_w_pos <- gadid_mb %>%
+  select(collection_year, lat_bin, prop_AC, prop_WP, prop_PC, prop_SC, prop_PolC) %>%
+  pivot_longer(cols = c(3:7), values_to = "prop", names_to = "taxon") %>%
+  mutate(CommonName = ifelse(taxon == "prop_AC", "Arctic cod", NA),
+         CommonName = ifelse(taxon == "prop_WP", "Walleye pollock", CommonName),
+         CommonName = ifelse(taxon == "prop_PC", "Pacific cod", CommonName),
+         CommonName = ifelse(taxon == "prop_SC", "Saffron cod", CommonName),
+         CommonName = ifelse(taxon == "prop_PolC", "Polar cod", CommonName))
 ```
+
+
+```{r}
+mb_prop_w_pos %>%
+  ggplot(aes(x=CommonName, y=lat_bin, fill = prop)) +
+  geom_tile() + 
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Adjust color scale as needed
+  facet_grid(~collection_year) + 
+  labs(title = "Heatmap of Species Proportion by Latitude",
+       x = "Species",
+       y = "Latitude",
+       fill = "Proportion of Total Detection in MB") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability
+```
+
+how many bottle of water where collected in each year at each lat bin? 
+```{r}
+gadid_mb %>%
+  select(collection_year, lat_bin, unique_bottles)
+```
+
+
+
 
 get the year/location metadata 
 ```{r}
