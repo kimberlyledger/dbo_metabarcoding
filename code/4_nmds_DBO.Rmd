@@ -16,9 +16,10 @@ library(ggplot2)
 rename <- dplyr::rename
 library(viridis)
 library(ggrepel)
+library(vegan)
 ```
 
-the data 
+the data - note: the filtered version on this data just means that any 1-L bottle that had less than 1000 reads post decontamination was removed from the data frame. 
 ```{r}
 #taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_filtered.csv") %>%
 taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_all.csv") %>%
@@ -55,7 +56,7 @@ metadata_join <- metadata_mini %>%
 ```
 
 
-since processing of the taxon table included samples from NBS and SBS surveys, let me go ahead are remove any taxa that were found in those but NOT in any DBO samples 
+since processing of the taxon table included samples from NBS and SBS surveys, let me go ahead are remove any taxa that were found in those but NOT in any DBO samples
 ```{r}
 dbo_taxa <- taxon_table %>%
   group_by(taxon) %>%
@@ -82,22 +83,16 @@ taxon_table %>%
   summarize(reads = sum(tot_reads)) %>%
   arrange(reads)
 
-less_than_100r <- taxon_table %>%
-  group_by(extraction_ID) %>%
-  summarize(reads = sum(tot_reads)) %>%
-  arrange(reads) %>%
-  filter(reads <100)
-
 #remove the extraction that now had no reads
 taxon_table <- taxon_table %>%
-   #filter(extraction_ID != "E1066.SKQ2021")
-  filter(!extraction_ID %in% less_than_100r$extraction_ID)
+   filter(extraction_ID != "E1066.SKQ2021")
 
 #remove the high latitude station (CK9) from 2023 with VERY DEEP samples - might want to add back in to dataset, but just want to make sure it's not responsible for driving lat or depth patterns 
 taxon_table <- taxon_table %>%
   filter(extraction_ID != "e04171") %>%
   filter(extraction_ID != "e04172") %>%
   filter(extraction_ID != "e04173") %>%
+  filter(extraction_ID != "e04174") %>%
   filter(extraction_ID != "e04175")
 
 #check the number of taxa per extraction
@@ -116,15 +111,15 @@ let me work with just the minimum info for now - remove extraction ID's with no 
 ```{r}
 taxa_df <- taxon_table[,c(1,6,13)] %>%
   filter(!is.na(tot_reads)) %>%
+  filter(tot_reads > 0) %>%
   rename(reads = tot_reads)
 
-
-## TRY running 2021 and 2023 data separately 
-taxon_table_2021 <- taxon_table %>%
-  filter(collection_year == 2021) 
-
-taxon_table_2023 <- taxon_table %>%
-  filter(collection_year == 2023) 
+# ## TRY running 2021 and 2023 data separately 
+# taxon_table_2021 <- taxon_table %>%
+#   filter(collection_year == 2021) 
+# 
+# taxon_table_2023 <- taxon_table %>%
+#   filter(collection_year == 2023) 
 
 #taxa_df <- taxon_table_2021[,c(1,6,13)] %>%
 #taxa_df <- taxon_table_2023[,c(1,6,13)] %>%
@@ -145,6 +140,7 @@ index_df <- taxa_df %>%
   
 ids <- index_df$extraction_ID
 index_df <- index_df[,-1]
+index_df[is.na(index_df)] <- 0
 
 wis_index <- wisconsin(index_df)
 
@@ -153,356 +149,335 @@ wis_index$extraction_ID <- ids
 ```
 
 
-let me compare tables 
+set up the wide dataframes for multivariate analyses
 ```{r}
-reads_df_wide <- taxa_df %>%
-  pivot_wider(names_from = taxon, values_from = reads)
-
-rowSums(reads_df_wide[,-1])
-colSums(reads_df_wide[,-1])
-dim(reads_df_wide[,-1])
-any(duplicated(reads_df_wide[,-1]))
-
-
-binary_df_wide <- taxa_df %>%
-  mutate(pres = ifelse(reads > 0, 1, 0)) %>%
-  select(!reads) %>%
-  pivot_wider(names_from = taxon, values_from = pres)
-
-any(duplicated(binary_df_wide[,-1]))
+#reads_df_wide <- taxa_df %>%
+#  pivot_wider(names_from = taxon, values_from = reads)
 
 index_df_wide <- wis_index %>%
   select(extraction_ID, everything())
+
+binary_df_wide <- index_df_wide %>%
+   mutate(across(-1, ~ ifelse(. > 0, 1, .)))
 ```
 
-get some metadata to run multivariate analyses 
-for now, i'm going to just work with field samples (i.e. ignore any reads in remaining field negatives, etc)
+
+## out of curiosity what do proportion of sequencing read plot for pollock and arctic cod look like over space and time 
+
+organize the metadata to run multivariate analyses 
+- just working with the field samples (no controls)
 ```{r}
 meta_for_nmds <- metadata_join  %>%
   filter(sample_type == "sample") %>%
   select(extraction_ID, collection_year, location1, location2, depth, longitude, latitude, Collection_Time_local, temp_C, salinity) %>%
   mutate(depth = as.numeric(depth)) %>%
   mutate(depth_cat = ifelse(depth <= 11, "10m", NA),
-         depth_cat = ifelse(depth == 24.2, "30m", depth_cat),    ## binning
-         depth_cat = ifelse(depth == 30, "30m", depth_cat),
-         depth_cat = ifelse(depth > 30, "bottom", depth_cat)) %>%
-  filter(extraction_ID %in% reads_df_wide$extraction_ID)
+         depth_cat = ifelse(depth > 11 & depth <= 32, "30m", depth_cat),
+         depth_cat = ifelse(depth > 32, "bottom", depth_cat)) %>%
+#  mutate(depth_cat = ifelse(depth <= 11, "surface", NA),
+#         depth_cat = ifelse(depth > 11, "subsurface", depth_cat)) %>%
+  filter(extraction_ID %in% index_df_wide$extraction_ID) %>%
+  mutate(collection_year = as.factor(collection_year))
 ```
 
 
-run an NMDS - getting errors for possibly having insufficient data... 
 ```{r}
-## fill in 0's for the extractions with 0 reads - maybe i actually want to just remove them? 
-#reads_df_wide[is.na(reads_df_wide)] <- 0 
-#index_df_wide[is.na(index_df_wide)] <- 0 
-#binary_df_wide[is.na(binary_df_wide)] <- 0 
-
-#binary_jaccard <- vegdist(binary_df_wide[,-1], method = "bray")
-#mds <- metaMDS(binary_jaccard)
-
-binary_NMS_2<-metaMDS(binary_df_wide[,-1], distance = "jaccard", k=2, try=200, autotransform = FALSE, maxit=1000)
-binary_NMS_3<-metaMDS(binary_df_wide[,-1], distance = "jaccard", k=3, try=200, autotransform = FALSE, maxit=1000)
-binary_NMS_4<-metaMDS(binary_df_wide[,-1], distance = "jaccard", k=4, try=200, autotransform = FALSE, maxit=1000)
-binary_NMS_5<-metaMDS(binary_df_wide[,-1], distance = "jaccard", k=5, try=200, autotransform = FALSE, maxit=1000)
-binary_NMS_6<-metaMDS(binary_df_wide[,-1], distance = "jaccard", k=6, try=200, autotransform = FALSE, maxit=1000)
-binary_NMS_7<-metaMDS(binary_df_wide[,-1], distance = "jaccard", k=7, try=200, autotransform = FALSE, maxit=1000)
-binary_NMS_8<-metaMDS(binary_df_wide[,-1], distance = "jaccard", k=8, try=200, autotransform = FALSE, maxit=1000)
-binary_NMS_9<-metaMDS(binary_df_wide[,-1], distance = "jaccard", k=9, try=200, autotransform = FALSE, maxit=1000)
-binary_NMS_10<-metaMDS(binary_df_wide[,-1], distance = "jaccard", k=10, try=200, autotransform = FALSE, maxit=1000)
-#binary_NMS_2$stress
-#stressplot(binary_NMS)
-
-stress_2d <- binary_NMS_2$stress
-stress_3d <- binary_NMS_3$stress
-stress_4d <- binary_NMS_4$stress
-stress_5d <- binary_NMS_5$stress
-stress_6d <- binary_NMS_6$stress
-stress_7d <- binary_NMS_7$stress
-stress_8d <- binary_NMS_8$stress
-stress_9d <- binary_NMS_9$stress
-stress_10d <- binary_NMS_10$stress
-
-k_values <- c(2, 3, 4, 5, 6, 7, 8, 9, 10)
-stress_values <- c(stress_2d, stress_3d, stress_4d, stress_5d, stress_6d, stress_7d, stress_8d, stress_9d, stress_10d)
-
-plot(k_values, stress_values, type = "b", xlab = "Number of Dimensions (k)", ylab = "Stress Value", main = "Choosing Optimal Dimensions for NMDS")
-
-#index_NMS<-metaMDS(index_df_wide[,-1], distance = "bray", k=5, try=200, autotransform = FALSE, maxit=1000)
-
-index_NMS_2<-metaMDS(index_df_wide[,-1], distance = "bray", k=2, try=200, autotransform = FALSE, maxit=1000)
-index_NMS_3<-metaMDS(index_df_wide[,-1], distance = "bray", k=3, try=200, autotransform = FALSE, maxit=1000)
-index_NMS_4<-metaMDS(index_df_wide[,-1], distance = "bray", k=4, try=200, autotransform = FALSE, maxit=1000)
-index_NMS_5<-metaMDS(index_df_wide[,-1], distance = "bray", k=5, try=200, autotransform = FALSE, maxit=1000)
-index_NMS_6<-metaMDS(index_df_wide[,-1], distance = "bray", k=6, try=200, autotransform = FALSE, maxit=1000)
-index_NMS_7<-metaMDS(index_df_wide[,-1], distance = "bray", k=7, try=200, autotransform = FALSE, maxit=1000)
-index_NMS_8<-metaMDS(index_df_wide[,-1], distance = "bray", k=8, try=200, autotransform = FALSE, maxit=1000)
-index_NMS_9<-metaMDS(index_df_wide[,-1], distance = "bray", k=9, try=200, autotransform = FALSE, maxit=1000)
-index_NMS_10<-metaMDS(index_df_wide[,-1], distance = "bray", k=10, try=200, autotransform = FALSE, maxit=1000)
-
-stress_2d <- index_NMS_2$stress
-stress_3d <- index_NMS_3$stress
-stress_4d <- index_NMS_4$stress
-stress_5d <- index_NMS_5$stress
-stress_6d <- index_NMS_6$stress
-stress_7d <- index_NMS_7$stress
-stress_8d <- index_NMS_8$stress
-stress_9d <- index_NMS_9$stress
-stress_10d <- index_NMS_10$stress
-
-k_values <- c(2, 3, 4, 5, 6, 7, 8, 9, 10)
-stress_values <- c(stress_2d, stress_3d, stress_4d, stress_5d, stress_6d, stress_7d, stress_8d, stress_9d, stress_10d)
-
-plot(k_values, stress_values, type = "b", xlab = "Number of Dimensions (k)", ylab = "Stress Value", main = "Choosing Optimal Dimensions for NMDS")
-
-#index_NMS$stress
-#stressplot(index_NMS)
-
-#reads_NMS<-metaMDS(reads_df_wide[,-1], distance = "bray", k=2, try=100, autotransform = TRUE, maxit=1000)
+gadids <- index_df_wide %>%
+  select(extraction_ID, `Boreogadus saida`, `Gadus chalcogrammus`, `Eleginus gracilis`, `Gadus macrocephalus`) %>%
+  pivot_longer(cols = c(2:5), names_to = "taxa", values_to = "read_index") %>%
+  left_join(meta_for_nmds) 
 ```
-
-set the nmds dataset i want to plot 
 ```{r}
-#NMS_data <- binary_NMS_6
-NMS_data <- index_NMS_6
-#NMS_data <- reads_NMS #not going to explore this one, nmds value are very very small
+library(rnaturalearth)
+library(rnaturalearthdata)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+min_lat <- min(gadids$latitude, na.rm = T)
+max_lat <- max(gadids$latitude, na.rm = T)
+
+min_lon <- min(gadids$longitude, na.rm = T)
+max_lon <- max(gadids$longitude, na.rm = T)
+
+wp <- gadids %>%
+  filter(taxa == "Gadus chalcogrammus")
+
+ac <- gadids %>%
+  filter(taxa == "Boreogadus saida")
+  
+plot <- ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = ac, aes(x=longitude, y=latitude, color = read_index)) +
+  #scale_color_gradient(low = "blue", high = "red", na.value = "black") +  # Color gradient for counts
+  #facet_grid(collection_year~CommonName) + 
+  facet_grid(depth_cat~collection_year) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "read index") +
+  theme(axis.text.x = element_text(angle = 90))
+
+plot
 ```
 
 ```{r}
-#create vectors with the NMS attributes
-NMS_coordinates<-scores(NMS_data,display="sites")
-NMS_axes<-as.data.frame(NMS_coordinates)
-NMS_scores<-scores(NMS_data,display="species")
+ggsave("/home/kimberly.ledger/dbo_metabarcoding/outputs/ac_index.png", plot = plot, dpi = 300)
 ```
 
-link back sample metadata
+
+
+
+as an aside, let's see if i can characterize the water using a cluster analysis 
 ```{r}
-for_ploting<-as.data.frame(cbind(NMS_coordinates,meta_for_nmds))
+metadata_per_station <- metadata_join  %>%
+  filter(sample_type == "sample") %>%
+  filter(location1 != "CK9") %>%
+  mutate(depth = as.numeric(depth)) %>%
+  mutate(depth_cat = ifelse(depth <= 11, "10m", NA),
+         depth_cat = ifelse(depth > 11 & depth <= 32, "30m", depth_cat),
+         depth_cat = ifelse(depth > 32, "bottom", depth_cat)) %>%
+  select(collection_year, location1, location2, longitude, latitude, depth_cat, temp_C, salinity) %>%
+  pivot_wider(names_from = "depth_cat", values_from = c("temp_C", "salinity"), names_sep = "_at_") 
 ```
 
+make some quick plots of correlations among variables 
 ```{r}
-#plot the stress
-stressplot(NMS_data)
-NMS_data$stress
+cor_matrix <- cor(metadata_per_station[,c(4:11)], use = "pairwise.complete.obs")
+print(cor_matrix)
+
+library(ggcorrplot)
+ggcorrplot(cor_matrix, lab = TRUE)
 ```
 
-plot - color by latitude 
-```{r}
-nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
-  geom_point(aes(NMDS1, NMDS2, colour = latitude, shape = factor(collection_year)), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
-  coord_fixed()+
-  theme_classic()+ 
-  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
-  labs(colour = "Latitude", shape = "Year", title = "by latitude") + # add legend labels for Station
-  theme(legend.position = "right", 
-        legend.text = element_text(size = 12), 
-        legend.title = element_text(size = 12), 
-        axis.text = element_text(size = 10)) #+ # add legend at right of plot
- #binary
-   #xlim(-0.035,0.02) +
-   #ylim(-0.04,0.016)
- #index  
-  #xlim(-0.022, 0.011) +
-  #ylim(-0.019,0.008)
-
-nmds.plot
-```
-now in this iteration, E1108.SKQ2021 stands out as an outlier... 
-
-plot - color by longitude 
-```{r}
-nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
-  geom_point(aes(NMDS1, NMDS2, colour = longitude, shape = factor(collection_year)), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
-  coord_fixed()+
-  theme_classic()+ 
-  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
-  labs(colour = "Longitude", shape = "Year", title = "by longitude") + # add legend labels for Station
-  theme(legend.position = "right", 
-        legend.text = element_text(size = 12), 
-        legend.title = element_text(size = 12), 
-        axis.text = element_text(size = 10)) #+ # add legend at right of plot
- #binary
-   #xlim(-0.035,0.02) +
-   #ylim(-0.04,0.016)
- #index  
-  #xlim(-0.022, 0.011) +
-  #ylim(-0.019,0.008)
-
-nmds.plot
-```
-
-plot - color by transect 
-```{r}
-nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
-  geom_point(aes(NMDS1, NMDS2, colour = factor(location2), shape = factor(collection_year)), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
-  coord_fixed()+
-  theme_classic()+ 
-  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
-  labs(colour = "Station", shape = "Year", title = "by transect/station") + # add legend labels for Station
-  theme(legend.position = "right", 
-        legend.text = element_text(size = 12), 
-        legend.title = element_text(size = 12), 
-        axis.text = element_text(size = 10)) #+ # add legend at right of plot
- #binary
-   #xlim(-0.035,0.02) +
-   #ylim(-0.04,0.016)
- #index  
-  #xlim(-0.022, 0.011) +
-  #ylim(-0.019,0.008)
-
-nmds.plot
-```
-
-plot - color by depth
-```{r}
-nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
-  geom_point(aes(NMDS1, NMDS2, colour = factor(depth_cat), shape = factor(collection_year)), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
-  coord_fixed()+
-  theme_classic()+ 
-  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
-  labs(colour = "Depth", shape = "Year", title = "by depth") + # add legend labels for Station
-  theme(legend.position = "right", 
-        legend.text = element_text(size = 12), 
-        legend.title = element_text(size = 12), 
-        axis.text = element_text(size = 10)) #+ # add legend at right of plot
- #binary
-   #xlim(-0.035,0.02) +
-   #ylim(-0.04,0.016)
- #index  
-  #xlim(-0.022, 0.011) +
-  #ylim(-0.019,0.008)
-
-nmds.plot
-```
-
-plot - color by year 
-```{r}
-nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
-  geom_point(aes(NMDS1, NMDS2, colour = factor(collection_year), shape = factor(collection_year)), size = 2)+ #adds site points to plot, shape determined by year, colour determined by year
-  coord_fixed()+
-  theme_classic()+ 
-  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
-  labs(colour = "Year", shape = "Year", title = "by year") + # add legend labels for Station
-  theme(legend.position = "right", 
-        legend.text = element_text(size = 12), 
-        legend.title = element_text(size = 12), 
-        axis.text = element_text(size = 10)) #+ # add legend at right of plot
-  #binary
-   #xlim(-0.035,0.02) +
-   #ylim(-0.04,0.016)
- #index  
-  #xlim(-0.022, 0.011) +
-  #ylim(-0.019,0.008)
-
-nmds.plot
-```
+okay, based on this correlation table, i'll use latitude, temp and salinity at 10m and temp and salinity at 30m and below. 
 
 ```{r}
-#spp.fit <- envfit(NMS_data, binary_df_wide[,-1], permutations = 999) # this fits species vectors
-spp.fit <- envfit(NMS_data, index_df_wide[,-1], permutations = 999) # this fits species vectors
-
-spp.scrs <- as.data.frame(scores(spp.fit, display = "vectors")) #save species intrinsic values into dataframe
-spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs)) #add species names to dataframe
-spp.scrs <- cbind(spp.scrs, pval = spp.fit$vectors$pvals) #add pvalues to dataframe so you can select species which are significant
-#spp.scrs<- cbind(spp.scrs, abrev = abbreviate(spp.scrs$Species, minlength = 6)) #abbreviate species names
-sig.spp.scrs <- subset(spp.scrs, pval<=0.05) #subset data to show species significant at 0.05
-
-head(spp.scrs)
-
-library(ggrepel)
-# nmds.plot +
-#   geom_segment(data = sig.spp.scrs, aes(x = 0, xend=NMDS1, y=0, yend=NMDS2), arrow = arrow(length = unit(0.25, "cm")), colour = "grey10", lwd=0.3) + #add vector arrows of significant species
-#   ggrepel::geom_text_repel(data = sig.spp.scrs, aes(x=NMDS1, y=NMDS2, label = Species), cex = 3, direction = "both", segment.size = 0.25)
-
-
-#plot just significant species 
-nmds.plot.spp <- ggplot() + 
-  geom_point(data = sig.spp.scrs, aes(NMDS1, NMDS2, colour = Species)) + 
-  ggrepel::geom_text_repel(data = sig.spp.scrs, aes(x=NMDS1, y=NMDS2, label = Species), cex = 3, direction = "both", segment.size = 0.25) + 
-  theme_classic()+ 
-  theme(legend.position = "none") +
-  labs(title = "significant species")
-
-nmds.plot.spp   
+metadata_per_station_revised <- metadata_join  %>%
+  filter(sample_type == "sample") %>%
+  filter(location1 != "CK9") %>%
+  mutate(depth = as.numeric(depth)) %>%
+  mutate(depth_cat = ifelse(depth <= 11, "surface", NA),
+         depth_cat = ifelse(depth > 11, "subsurface", depth_cat)) %>%
+  select(collection_year, location1, location2, longitude, latitude, depth_cat, temp_C, salinity) %>%
+  pivot_wider(names_from = "depth_cat", values_fn = mean, values_from = c("temp_C", "salinity"), names_sep = "_at_") 
 ```
 
-nmds1 - latitude
-nmds2 - year 
-
-## investigate the outlier samples 
+combine year and not including latitude 
+normalize the data and calculate Euclidean distances 
 ```{r}
-taxon_table %>%
-  filter(extraction_ID == "E1108.SKQ2021") %>%
-  filter(tot_reads > 0)
+water_norm <- metadata_per_station_revised %>%
+  filter(location1 != "DBO_2.7") %>%
+  select(temp_C_at_subsurface:salinity_at_surface) %>%  # Select relevant columns     ## not including latitude... 
+  #select(latitude:salinity_at_surface) %>% 
+  scale()                             # Normalize (z-score)
+
+for_label <- metadata_per_station_revised %>%
+  filter(location1 != "DBO_2.7")
+
+water_dist_matrix <- dist(water_norm, method = "euclidean")
+
+# Step 3: Perform hierarchical clustering
+water_hc <- hclust(water_dist_matrix, method = "average")  # Group-averaged linkages
+
+# Step 4: Plot dendrogram
+#plot(water_hc, labels = metadata_per_station$collection_year, main = "Dendrogram of Water Masses", xlab = "Stations", ylab = "Height")
+plot(water_hc, labels = for_label$location1, main = "Dendrogram of Water Masses", xlab = "Stations", ylab = "Height")
+
+# Number of clusters to evaluate
+k.max <- 10
+wss <- numeric(k.max)
+
+# Loop through k values to calculate WSS
+for (k in 1:k.max) {
+  # Cut the dendrogram into k groups
+  cluster_assignment <- cutree(water_hc, k)
+  
+  # Calculate total within-cluster sum of squares
+  wss[k] <- sum(sapply(unique(cluster_assignment), function(cluster) {
+    sum((dist(water_norm[cluster_assignment == cluster, ])^2))  # Sum of squares for each cluster
+  }))
+}
+
+# Plot the elbow curve
+plot(1:k.max, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of Clusters (k)", 
+     ylab = "Total Within-Cluster Sum of Squares (WSS)",
+     main = "Elbow Method for Optimal k")
+
+groups <- cutree(water_hc, k = 5)   
+adonis2(water_dist_matrix ~ groups)
+
+plot(water_hc, labels = for_label$location1)
+rect.hclust(water_hc, k = 5, border = "red")
+```
+
+# cluster analysis - water 2021
+normalize the data and calculate Euclidean distances 
+```{r}
+water_norm <- metadata_per_station_revised %>%
+  filter(collection_year == 2021) %>%
+  #select(temp_C_at_subsurface:salinity_at_surface) %>%  # Select relevant columns     ## not including latitude... 
+  select(latitude:salinity_at_surface) %>% 
+  scale()                             # Normalize (z-score)
+
+for_label <- metadata_per_station_revised %>%
+  filter(collection_year == 2021)
+
+water_dist_matrix <- dist(water_norm, method = "euclidean")
+
+# Step 3: Perform hierarchical clustering
+water_hc <- hclust(water_dist_matrix, method = "average")  # Group-averaged linkages
+
+# Step 4: Plot dendrogram
+#plot(water_hc, labels = metadata_per_station$collection_year, main = "Dendrogram of Water Masses", xlab = "Stations", ylab = "Height")
+plot(water_hc, labels = for_label$location1, main = "Dendrogram of Water Masses", xlab = "Stations", ylab = "Height")
+
+# Number of clusters to evaluate
+k.max <- 10
+wss <- numeric(k.max)
+
+# Loop through k values to calculate WSS
+for (k in 1:k.max) {
+  # Cut the dendrogram into k groups
+  cluster_assignment <- cutree(water_hc, k)
+  
+  # Calculate total within-cluster sum of squares
+  wss[k] <- sum(sapply(unique(cluster_assignment), function(cluster) {
+    sum((dist(water_norm[cluster_assignment == cluster, ])^2))  # Sum of squares for each cluster
+  }))
+}
+
+# Plot the elbow curve
+plot(1:k.max, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of Clusters (k)", 
+     ylab = "Total Within-Cluster Sum of Squares (WSS)",
+     main = "Elbow Method for Optimal k")
+
+groups <- cutree(water_hc, k = 3)   
+adonis2(water_dist_matrix ~ groups)
+
+plot(water_hc, labels = for_label$location1)
+rect.hclust(water_hc, k = 3, border = "red")
+```
+
+# cluster analysis - water 2023
+```{r}
+water_norm <- metadata_per_station_revised %>%
+  filter(collection_year == 2023) %>%
+  filter(location1 != "DBO_2.7") %>%
+  #select(temp_C_at_subsurface:salinity_at_surface) %>%  # Select relevant columns
+  select(latitude:salinity_at_surface) %>%
+  scale()                             # Normalize (z-score)
+
+for_label <- metadata_per_station_revised %>%
+  filter(collection_year == 2023) %>%
+  filter(location1 != "DBO_2.7")
+
+water_dist_matrix <- dist(water_norm, method = "euclidean")
+
+# Step 3: Perform hierarchical clustering
+water_hc <- hclust(water_dist_matrix, method = "average")  # Group-averaged linkages
+
+# Step 4: Plot dendrogram
+#plot(water_hc, labels = metadata_per_station$collection_year, main = "Dendrogram of Water Masses", xlab = "Stations", ylab = "Height")
+plot(water_hc, labels = for_label$location1, main = "Dendrogram of Water Masses", xlab = "Stations", ylab = "Height")
+
+# Number of clusters to evaluate
+k.max <- 10
+wss <- numeric(k.max)
+
+# Loop through k values to calculate WSS
+for (k in 1:k.max) {
+  # Cut the dendrogram into k groups
+  cluster_assignment <- cutree(water_hc, k)
+  
+  # Calculate total within-cluster sum of squares
+  wss[k] <- sum(sapply(unique(cluster_assignment), function(cluster) {
+    sum((dist(water_norm[cluster_assignment == cluster, ])^2))  # Sum of squares for each cluster
+  }))
+}
+
+# Plot the elbow curve
+plot(1:k.max, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of Clusters (k)", 
+     ylab = "Total Within-Cluster Sum of Squares (WSS)",
+     main = "Elbow Method for Optimal k")
+
+groups <- cutree(water_hc, k = 4)   ## just starting with k=3
+adonis2(water_dist_matrix ~ groups)
+
+plot(water_hc, labels = for_label$location1)
+rect.hclust(water_hc, k = 4, border = "red")
+```
+
+not sure how helpful this is... maybe different water parameters are needed? or perhaps there are a few funky stations? 
+
+plot these on a map to see if they make any sense spatially 
+
+now i want to plot those cluster onto a map to visualize any location patterns 
+```{r}
+library(rnaturalearth)
+library(rnaturalearthdata)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+min_lat <- min(for_label$latitude, na.rm = T)
+max_lat <- max(for_label$latitude, na.rm = T)
+
+min_lon <- min(for_label$longitude, na.rm = T)
+max_lon <- max(for_label$longitude, na.rm = T)
+
+for_label$group <- groups
+for_label$group <- as.factor(for_label$group)
+  
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = for_label, aes(x=longitude, y=latitude, color = group)) +
+  #scale_color_gradient(low = "blue", high = "red", na.value = "black") +  # Color gradient for counts
+  #facet_grid(collection_year~CommonName) + 
+  facet_grid(~collection_year) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "count") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+what lat, surface and subsurface temps and salinities describe these groups
+```{r}
+for_label %>%
+  select(location1, group, latitude:salinity_at_surface) %>%
+  pivot_longer(cols = c(3:7), names_to = "var", values_to = "value") %>%
+  group_by(group, var) %>%
+  summarise(minimum = min(value),
+            mean = mean(value),
+            max = max(value))
 ```
 
 ```{r}
-taxon_table_meta %>% 
-  filter(taxon == "Gadus macrocephalus") %>%
-  filter(tot_reads > 0)
+#water_groups_2021 <- for_label
+#water_groups_2023 <- for_label
 ```
 
-notes from previous runs: 
-Allosmerus elongatus in four samples - each with only 2 or 3 reads 
-Icelus only in one sample
 
-remove all species with only one (or few detections?)
-remove taxa with very very few reads (ie. Allosmerus elongatus)
+anyways, getting back to the fish communities for now... 
+
+
+
+## update - separating out years! 
+```{r}
+#water_groups_2021 <- water_groups_2021 %>%
+#  mutate(collection_year = as.factor(collection_year))
+
+for_label <- for_label %>%
+  mutate(collection_year = as.factor(collection_year))
+
+ meta_for_nmds <- meta_for_nmds %>%
+#   filter(collection_year == 2021) %>%
+   left_join(for_label)
+# 
+# binary_df_wide <- binary_df_wide %>%
+#   filter(extraction_ID %in% meta_for_nmds$extraction_ID)
+```
+
 
 ## test for differences in communities between lat/long/depth/year using PERMANOVA 
-
-first which variable are correlated? 
-```{r}
-plot(meta_for_nmds$latitude ~ meta_for_nmds$longitude)
-```
-
-strong relationship between lat and long, so just going to test latitude 
-
-```{r}
-plot(meta_for_nmds$latitude ~ meta_for_nmds$depth)
-```
-
-```{r}
-boxplot(meta_for_nmds$latitude ~ meta_for_nmds$depth_cat)
-```
-
-```{r}
-boxplot(meta_for_nmds$latitude ~ meta_for_nmds$collection_year)
-```
-
-```{r}
-boxplot(meta_for_nmds$latitude ~ as.factor(meta_for_nmds$location2))
-```
-
-```{r}
-plot(meta_for_nmds$latitude ~ meta_for_nmds$temp_C, col = meta_for_nmds$collection_year)
-```
-
-```{r}
-plot(meta_for_nmds$depth ~ meta_for_nmds$temp_C, col = meta_for_nmds$collection_year)
-```
-
-```{r}
-boxplot(meta_for_nmds$temp_C ~ meta_for_nmds$collection_year)
-```
-
-```{r}
-plot(meta_for_nmds$latitude ~ meta_for_nmds$salinity, col = meta_for_nmds$collection_year)
-```
-
-```{r}
-plot(meta_for_nmds$depth ~ meta_for_nmds$salinity, col = meta_for_nmds$collection_year)
-```
-
-```{r}
-boxplot(meta_for_nmds$salinity ~ meta_for_nmds$collection_year)
-```
-
-```{r}
-meta_for_nmds$time_of_day_posix <- as.POSIXct(meta_for_nmds$Collection_Time_local, format = "%H:%M", tz = "UTC")
-plot(meta_for_nmds$latitude ~ meta_for_nmds$time_of_day_posix, col = meta_for_nmds$collection_year)
-```
-
-
 ```{r}
 binary_dist <- vegdist(binary_df_wide[,-1], method = "jaccard")
 
@@ -513,23 +488,25 @@ binary_depth <- adonis2(binary_dist ~ meta_for_nmds$depth, permutations = 999)  
 binary_depth
 binary_depth_cat <- adonis2(binary_dist ~ meta_for_nmds$depth_cat, permutations = 999)
 binary_depth_cat
-binary_year <- adonis2(binary_dist ~ meta_for_nmds$collection_year, permutations = 999)
-binary_year
+#binary_year <- adonis2(binary_dist ~ meta_for_nmds$collection_year, permutations = 999)
+#binary_year
 binary_temp <- adonis2(binary_dist ~ meta_for_nmds$temp_C, permutations = 999)
 binary_temp
 binary_salinity <- adonis2(binary_dist ~ meta_for_nmds$salinity, permutations = 999)
 binary_salinity
+binary_water <- adonis2(binary_dist ~ meta_for_nmds$group, permutations = 999)
+binary_water
 
 # Convert the time to POSIXct (or POSIXlt)
-time_posix <- strptime(meta_for_nmds$Collection_Time_local, format = "%H:%M")
+#time_posix <- strptime(meta_for_nmds$Collection_Time_local, format = "%H:%M")
 # Convert the time to numeric hours (0 to 24)
-meta_for_nmds$numeric_hours <- as.numeric(format(time_posix, "%H")) + as.numeric(format(time_posix, "%M")) / 60
-
-binary_tod <- adonis2(binary_dist ~ meta_for_nmds$numeric_hours, permutations = 999)
-binary_tod
+#meta_for_nmds$numeric_hours <- as.numeric(format(time_posix, "%H")) + as.numeric(format(time_posix, "%M")) / 60
+#binary_tod <- adonis2(binary_dist ~ meta_for_nmds$numeric_hours, permutations = 999)
+#binary_tod
 ```
 
-for binary format, latitude and year are significant (and now also temp and salinity)
+for binary format, latitude, year, temp, and salinity are significant 
+update - new group variable explains more variation (higher R2 than lat, etc) for 2021 
 
 ```{r}
 index_dist <- vegdist(index_df_wide[,-1], distance = "bray")
@@ -547,12 +524,55 @@ index_temp <- adonis2(index_dist ~ meta_for_nmds$temp_C, permutations = 999)
 index_temp
 index_salinity <- adonis2(index_dist ~ meta_for_nmds$salinity, permutations = 999)
 index_salinity
-index_tod <- adonis2(index_dist ~ meta_for_nmds$numeric_hours, permutations = 999)
-index_tod
+#index_tod <- adonis2(index_dist ~ meta_for_nmds$numeric_hours, permutations = 999)
+#index_tod
 ```
 
-significant continuous: latitude, depth (and now temp and salinity)
-significant categorical: year
+for index format, latitude, year, temp, and salinity are significant 
+
+visualize with NMDS
+```{r}
+binary_dist <- vegdist(binary_df_wide[,-1], method = "jaccard")
+binary_mds <- metaMDS(binary_dist)
+
+NMS_data <- binary_mds
+
+#create vectors with the NMS attributes
+NMS_coordinates<-vegan::scores(NMS_data,display="sites")
+NMS_axes<-as.data.frame(NMS_coordinates)
+NMS_scores<-vegan::scores(NMS_data,display="species")
+
+for_ploting<-as.data.frame(cbind(NMS_coordinates,meta_for_nmds))
+
+nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
+  geom_point(aes(NMDS1, NMDS2, colour = group), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
+  coord_fixed()+
+  theme_classic()+ 
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
+  #labs(colour = "Latitude", shape = "Year", title = "by latitude") + # add legend labels for Station
+  theme(legend.position = "right", 
+        legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 12), 
+        axis.text = element_text(size = 10)) #+ # add legend at right of plot
+nmds.plot
+
+
+pca_result <- prcomp(binary_dist)
+
+# Create a data frame with PCA results
+pca_data <- data.frame(pca_result$x, group = meta_for_nmds$group)
+
+# Visualize PCA with confidence ellipses
+ggplot(pca_data, aes(x = PC1, y = PC2, color = group)) +
+  geom_point() +  # Add points
+  stat_ellipse(aes(fill = group), alpha = 0.2) +  # Add confidence ellipses
+  labs(title = "PCA of Presence/Absence Data",
+       x = "Principal Component 1",
+       y = "Principal Component 2") +
+  theme_minimal()
+```
+
+
 
 ## conduct PERMDISP (Permutational Multivariate Dispersion Test) for significant PERMANOVA results
 - only for CATEGORICAL PREDICTORS 
@@ -561,8 +581,8 @@ significant categorical: year
 
 # Step 1: Use betadisper to calculate the dispersion of groups in principal coordinate space
 
-dispersion <- betadisper(index_dist, as.factor(meta_for_nmds$collection_year))
-#dispersion <- betadisper(binary_dist, as.factor(meta_for_nmds$collection_year))
+#dispersion <- betadisper(index_dist, as.factor(meta_for_nmds$collection_year))
+dispersion <- betadisper(binary_dist, as.factor(meta_for_nmds$collection_year))
 
 # Step 2: Perform a permutation test for multivariate homogeneity of group dispersions (PERMDISP)
 dispersion_test <- permutest(dispersion, permutations = 999)
@@ -580,16 +600,21 @@ okay, so for collection year, since the PERMDISP is also significant, this sugge
 hmm, even though PERMDISP is significant, the plot make it seem like dispersion is pretty similar between years....
 
 
-let me try a distance-based redundancy analysis (dbRDA) for continuous variables - latitude and depth
+let me try a distance-based redundancy analysis (dbRDA) - USING BINARY! 
 ```{r}
 # Fit the dbRDA model - using capscale() - constrained analysis of principal coordinates
 
-#rda_index <- capscale(index_df_wide[,-1] ~ meta_for_nmds$latitude + meta_for_nmds$depth + as.factor(meta_for_nmds$collection_year) + meta_for_nmds$temp_C + meta_for_nmds$salinity, distance = "bray")
+rda_index <- capscale(binary_df_wide[,-1] ~ 
+                        #meta_for_nmds$latitude + 
+                        #meta_for_nmds$depth + 
+                        #as.factor(meta_for_nmds$collection_year) + 
+                        #meta_for_nmds$temp_C + 
+                        #meta_for_nmds$salinity, 
+                        meta_for_nmds$group, 
+                      distance = "jaccard")
 
 ## for just one year of data
-rda_index <- capscale(index_df_wide[,-1] ~ meta_for_nmds$latitude + meta_for_nmds$depth + meta_for_nmds$temp_C + meta_for_nmds$salinity, distance = "bray")
-
-#rda_index <- capscale(binary_df_wide[,-1] ~ meta_for_nmds$latitude + meta_for_nmds$depth + as.factor(meta_for_nmds$collection_year), distance = "jaccard")  ## need to change variable name at somepoint to avoid confusion...
+#rda_index <- capscale(index_df_wide[,-1] ~ meta_for_nmds$latitude + meta_for_nmds$depth + meta_for_nmds$temp_C + meta_for_nmds$salinity, distance = "bray")
 
 anova_terms <- anova(rda_index, by = "terms", permutations = 999)
 anova_terms 
@@ -603,9 +628,9 @@ total_inertia <- sum(eigenvalues)
 # Calculate proportion explained for CAP1 and CAP2
 proportion_variance <- eigenvalues / total_inertia * 100
 
-# First use the regular plot option to get a feel for the data
-plot(rda_index, scaling = 2, choices = c(1,2))
-plot(rda_index, scaling = 2, choices = c(1,3))
+## First use the regular plot option to get a feel for the data
+#plot(rda_index, scaling = 2, choices = c(1,2))
+#plot(rda_index, scaling = 2, choices = c(1,3))
 
 # CAP1 = latitude, CAP2 = year, CAP3 = depth (CAP3 changes when adding in temp and salinity to the model)
 
@@ -626,7 +651,7 @@ biplot_arrows$variable <- rownames(biplot_arrows)
 biplot_arrows <- biplot_arrows %>%
   mutate(variable = ifelse(variable == "meta_for_nmds$latitude", "latitude", variable),
          variable = ifelse(variable == "meta_for_nmds$depth", "depth", variable),
-         #variable = ifelse(variable == "as.factor(meta_for_nmds$collection_year)2023", "year", variable),
+         variable = ifelse(variable == "as.factor(meta_for_nmds$collection_year)2023", "year", variable),
          variable = ifelse(variable == "meta_for_nmds$temp_C", "temperature", variable),
          variable = ifelse(variable == "meta_for_nmds$salinity", "salinity", variable))
 
@@ -636,6 +661,30 @@ plot_lat <- ggplot() +
   geom_point(data = site_scores, aes(x = CAP1, y = CAP2, color = meta_for_nmds$latitude), size = 3) +
   #geom_text_repel(data = site_scores, aes(x = CAP1, y = CAP2, label = Sample), size = 4) +
   scale_color_viridis(option = "cividis",  direction = -1) +
+  
+  # Plot species scores
+  geom_point(data = species_scores, aes(x = CAP1, y = CAP2), color = "red", size = 2) +
+  geom_text_repel(data = species_scores, aes(x = CAP1, y = CAP2, label = Species), color = "red", size = 2) +
+  
+  # Plot arrows
+  geom_segment(data = biplot_arrows, aes(x = 0, y = 0, xend = CAP1, yend = CAP2), 
+               arrow = arrow(length = unit(0.3, "cm")), color = "black") + # Plot biplot arrows
+  geom_text(data = biplot_arrows, aes(x = CAP1 * 1.1, y = CAP2 * 1.1, label = variable), color = "black") + # Label arrows
+  
+  # Add labels and theme
+  labs(title = "CAP Plot", 
+       x = paste("CAP1 (", round(proportion_variance[1], 2), "% variance explained)", sep = ""), 
+       y = paste("CAP2 (", round(proportion_variance[2], 2), "% variance explained)", sep = ""),
+       color = "latitude") +
+  theme_minimal() #+
+  #theme(legend.position = "none")
+
+## Plot CAP1 vs CAP2 - color sites by group
+plot_group <- ggplot() +
+  # Plot site scores
+  geom_point(data = site_scores, aes(x = CAP1, y = CAP2, color = meta_for_nmds$group), size = 3) +
+  #geom_text_repel(data = site_scores, aes(x = CAP1, y = CAP2, label = Sample), size = 4) +
+  #scale_color_viridis(option = "cividis",  direction = -1) +
   
   # Plot species scores
   geom_point(data = species_scores, aes(x = CAP1, y = CAP2), color = "red", size = 2) +
@@ -739,7 +788,7 @@ plot_depth
 ```{r}
 #ggsave(plot= plot_lat, "/home/kimberly.ledger/dbo_metabarcoding/outputs/latitude_fishonly.png", dpi = 300, width = 8, height = 6)
 #ggsave(plot= plot_year, "/home/kimberly.ledger/dbo_metabarcoding/outputs/year_fishonly.png", dpi = 300, width = 8, height = 6)
-ggsave(plot= plot_depth, "/home/kimberly.ledger/dbo_metabarcoding/outputs/depth_fishonly.png", dpi = 300, width = 8, height = 6)
+#ggsave(plot= plot_depth, "/home/kimberly.ledger/dbo_metabarcoding/outputs/depth_fishonly.png", dpi = 300, width = 8, height = 6)
 ```
 
 now that i have some pretty plot, let's see the stats 
@@ -748,6 +797,10 @@ model summary
 ```{r}
 summary(rda_index) 
 ```
+
+so the weird site with just pcod that was sticking out in the nmds is fine here. 
+CAP1 is largely latitude
+CAP2 is largely year 
 
 
 significance testing
@@ -770,45 +823,219 @@ vif_values <- vif.cca(rda_index)
 print(vif_values)
 ```
 
-## test the same question but use GAM - it's a seperate model for each species 
+## test the same question but use GAM - it's a seperate model for each species - 
+i'm not 100% sure i'm setting up the model in the exact way i want to... 
 ```{r}
 library(mgcv)
-
 
 # Loop through each species column in your data frame
 species_names <- colnames(index_df_wide)[-1]  # Exclude the first column (e.g., site or sample ID)
 
 results <- list()  # To store the GAM models
 
+
 for (species in species_names) {
   response_var <- index_df_wide[[species]]
   
   # Fit the GAM for each species
-  gam_model <- gam(response_var ~ s(latitude) + s(depth) + s(temp_C) + as.factor(collection_year), 
+  gam_model <- gam(response_var ~ s(latitude) + s(depth) + s(temp_C) + s(salinity) + s(collection_year, bs = "re"), 
                    data = meta_for_nmds)
   
   results[[species]] <- summary(gam_model)  # Store the summary of the model
 }
 
+
+### updated to pull out sign species according to an explainatory variable 
+
+results <- list()  # To store the GAM models
+significant_species <- list()  # To store species with significant p-value for depth
+
+for (species in species_names) {
+  response_var <- index_df_wide[[species]]
+  
+  # Fit the GAM for each species  - linear effect of latitude (probably okay assumption)
+  gam_model <- gam(response_var ~ latitude + s(depth) + s(temp_C) + salinity + s(collection_year, bs = "re"), 
+                   data = meta_for_nmds)
+  
+  # Get the summary of the model
+  model_summary <- summary(gam_model)
+  
+  # Extract p-value for the "depth" variable
+  depth_p_value <- model_summary$s.table[grep("depth", rownames(model_summary$s.table)), "p-value"]
+  
+  # Check if the p-value is significant (e.g., < 0.05)
+  if (depth_p_value < 0.05) {
+    significant_species[[species]] <- depth_p_value
+  }
+  
+  # Store the model summary in results
+  results[[species]] <- model_summary
+}
+
+# Display species with significant p-values for depth
+significant_species
+
+
 # Access the results for each species
 results$`Gadus chalcogrammus`
+results$`Boreogadus saida`
+results$`Clupea pallasii`
+results$`Mallotus villosus`
+
+
+library(gratia)
+```
+
+this is interesting on a species-by-species basis - some environmental variables are signicant for some but not others 
+
+
+GAM on binary data
+```{r}
+library(mgcv)
+
+# Loop through each species column in your data frame
+species_names <- colnames(binary_df_wide)[-1]  # Exclude the first column (e.g., site or sample ID)
+
+# results <- list()  # To store the GAM models
+# 
+# for (species in species_names) {
+#   response_var <- index_df_wide[[species]]
+#   
+#   # Fit the GAM for each species
+#   gam_model <- gam(response_var ~ s(latitude) + s(depth) + s(temp_C) + s(salinity) + s(collection_year, bs = "re"), 
+#                    data = meta_for_nmds)
+#   
+#   results[[species]] <- summary(gam_model)  # Store the summary of the model
+# }
+
+
+### updated to pull out sign species according to an explainatory variable 
+
+results <- list()  # To store the GAM models
+significant_species <- list()  # To store species with significant p-value for depth
+
+for (species in species_names) {
+  response_var <- binary_df_wide[[species]]
+  
+  # Fit the GAM for each species  - linear effect of latitude (probably okay assumption)
+  gam_model <- gam(response_var ~ s(latitude) + s(depth) + s(temp_C) + s(salinity) + s(collection_year, bs = "re"), 
+                   family = binomial, data = meta_for_nmds)
+  
+  # Get the summary of the model
+  model_summary <- summary(gam_model)
+  
+  # Extract p-value for the "depth" variable
+  depth_p_value <- model_summary$s.table[grep("depth", rownames(model_summary$s.table)), "p-value"]
+  
+  # Check if the p-value is significant (e.g., < 0.05)
+  if (depth_p_value < 0.05) {
+    significant_species[[species]] <- depth_p_value
+  }
+  
+  # Store the model summary in results
+  results[[species]] <- model_summary
+}
+
+# Display species with significant p-values for depth
+significant_species
+
+
+# Access the results for each species
+results$`Gadus chalcogrammus`
+results$`Boreogadus saida`
+results$`Clupea pallasii`
+results$`Mallotus villosus`
+
+# can't figure out how to plot from this combined species output 
+
+pollock <- binary_df_wide$`Gadus chalcogrammus`
+# Fit the GAM for each species  - linear effect of latitude (probably okay assumption)
+pollock_model <- gam(pollock ~ latitude + s(depth) + s(temp_C) + s(salinity) + s(collection_year, bs = "re"), 
+                   family = binomial, data = meta_for_nmds)
+summary(pollock_model)  
+plot(pollock_model, pages = 1, se = TRUE)
+
+
+# Create a new data frame to predict values
+new_data <- meta_for_nmds %>%
+  select(latitude, depth, temp_C, salinity, collection_year) %>%
+  reframe(latitude = seq(min(latitude), max(latitude), length.out = 100),
+            depth = median(depth),          # Fix depth at median
+            temp_C = median(temp_C),        # Fix temp_C at median
+            salinity = median(salinity),    # Fix salinity at median
+            collection_year = 2021)  # Fix year at 2021
+
+# Get predicted values
+new_data$predicted <- predict(pollock_model, newdata = new_data, type = "response")
+
+ggplot(new_data, aes(x = latitude, y = predicted)) +
+  geom_line(color = "blue") +
+  labs(title = paste("Predicted Response for Pollock"),
+       x = "Latitude",
+       y = "Predicted Response (Probability)") +
+  theme_minimal()
+```
+
+
+
+
+# heatmap of species presence by depth and latitude 
+```{r}
+# Convert the taxon_table into long format
+taxon_long <- binary_df_wide %>%
+  pivot_longer(cols = -extraction_ID, names_to = "species", values_to = "presence_absence") %>%
+  left_join(meta_for_nmds, by = "extraction_ID") %>%
+  mutate(presence_absence = as.factor(presence_absence)) %>%
+  mutate(latitude = as.numeric(latitude)) %>%
+  mutate(depth = as.numeric(depth))
+
+taxon_subset <- taxon_long %>%
+  #filter(species %in% colnames(binary_df_wide[2:7])) %>%
+  filter(species %in% c("Boreogadus saida", "Liparis", "Gadus macrocephalus", "Ammodytes personatus", "Trichodon trichodon", "Sebastes 2")) #%>%
+  #filter(collection_year == 2021)
+
+# Plot the heatmap
+ggplot(taxon_subset, aes(x = latitude, y = depth, color = presence_absence)) +
+  geom_point() +
+  scale_color_manual(values = c("0" = "grey80", "1" = "blue"), 
+                  labels = c("Absent", "Present"),
+                  name = "Presence") + 
+  facet_wrap(collection_year ~ species) +
+  scale_y_reverse() +  # Optional, if you want to reverse depth to have surface at top
+  labs(x = "Latitude", y = "Depth") +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 
 #identify species driving difference between lat, depth, year, etc. 
 
 for categorial vars, i can use indval function from labdsv package 
-
 ```{r}
 library(labdsv)
 
 # Perform indicator species analysis
-#indicator_year <- indval(index_df_wide[,-1], meta_for_nmds$collection_year, perm = 999)
-indicator_year <- indval(binary_df_wide[,-1], meta_for_nmds$collection_year, perm = 999)
+indicator_year <- indval(index_df_wide[,-1], meta_for_nmds$collection_year, perm = 999)
+#indicator_year <- indval(binary_df_wide[,-1], meta_for_nmds$collection_year, perm = 999)
 summary(indicator_year)
 
 ## there's a whole bunch more species in 2023 than in 2021
 ```
+
+water grouping variable 
+```{r}
+library(labdsv)
+
+# Perform indicator species analysis
+#indicator_year <- indval(index_df_wide[,-1], meta_for_nmds$group, perm = 999)
+indicator_year <- indval(binary_df_wide[,-1], meta_for_nmds$group, perm = 999)
+summary(indicator_year)
+
+## there's a whole bunch more species in 2023 than in 2021
+```
+
+
 
 ```{r}
 # this only works for categorical variables, so let me make some dummy groups for this 
@@ -826,13 +1053,6 @@ indicator_latitude<- indval(index_df_wide[,-1], binned_lat, perm = 999)
 #indicator_latitude<- indval(binary_df_wide[,-1], binned_lat, perm = 999)
 indicator_latitude
 summary(indicator_latitude)
-```
-
-using depth categories
-```{r}
-indicator_depth <- indval(index_df_wide[,-1], meta_for_nmds$depth_cat, perm = 999)
-#indicator_depth <- indval(binary_df_wide[,-1], meta_for_nmds$depth_cat, perm = 999)
-summary(indicator_depth)
 ```
 
 
@@ -876,22 +1096,106 @@ ggplot(taxon_table_with_year_and_lat, aes(x = latitude, y = richness, color = as
   labs(x = "Latitude", y = "Taxa Richness", title = "Species Richness by Latitude", color = "latitude") +
   theme_minimal()                 # Apply a clean minimal theme
 
-ggplot(taxon_table_with_year_and_lat, aes(x = temp, y = richness, color = latitude)) +
-  geom_point() +   # Scatter plot points
-  scale_colour_viridis(option = "C", direction = -1) +
-  geom_smooth(method = "loess", se = TRUE) +  # Smoothed line (loess curve)
-  labs(x = "Temperature", y = "Taxa Richness", title = "Species Richness by Temperature", color = "Latitude") +
-  theme_minimal()                 # Apply a clean minimal theme
+# ggplot(taxon_table_with_year_and_lat, aes(x = temp, y = richness, color = latitude)) +
+#   geom_point() +   # Scatter plot points
+#   scale_colour_viridis(option = "C", direction = -1) +
+#   geom_smooth(method = "loess", se = TRUE) +  # Smoothed line (loess curve)
+#   labs(x = "Temperature", y = "Taxa Richness", title = "Species Richness by Temperature", color = "Latitude") +
+#   theme_minimal()                 # Apply a clean minimal theme
 
 ```
 
-run a GAM modeling species richness by latitude, year and depth 
-```{r}
-# Fit a GAM on species richness
-gam_model_richness <- gam(richness ~ s(latitude) + s(depth) + s(temp) + as.factor(year), 
-                           data = taxon_table_with_year_and_lat)
 
-summary(gam_model_richness)
-plot(gam_model_richness)
+now let me try a cluster analysis on the fish data
+```{r}
+#let's just go with one year of data for now...
+subset <- meta_for_nmds %>%
+  filter(collection_year == 2021)
+
+#index_subset <- index_df_wide %>%
+#  filter(extraction_ID %in% subset$extraction_ID)
+
+binary_subset <- binary_df_wide %>%
+  filter(extraction_ID %in% subset$extraction_ID)
+
+#dist_matrix <- vegdist(index_subset[,-1], method = "bray")
+dist_matrix <- vegdist(binary_subset[,-1], method = "jaccard")
+
+
+# Cluster Dendrogram
+hc <- hclust(dist_matrix, method = "ward.D2")
+plot(hc, labels = subset$location1)
+
+# Number of clusters to evaluate
+k.max <- 10
+wss <- numeric(k.max)
+
+# Loop through k values to calculate WSS
+for (k in 1:k.max) {
+  # Cut the dendrogram into k groups
+  cluster_assignment <- cutree(hc, k)
+  
+  # Calculate total within-cluster sum of squares
+  wss[k] <- sum(sapply(unique(cluster_assignment), function(cluster) {
+    sum((dist(index_subset[,-1][cluster_assignment == cluster, ])^2))  # Sum of squares for each cluster
+  }))
+}
+
+# Plot the elbow curve
+plot(1:k.max, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of Clusters (k)", 
+     ylab = "Total Within-Cluster Sum of Squares (WSS)",
+     main = "Elbow Method for Optimal k")
+
+groups <- cutree(hc, k = 3)   ## just starting with k=3
+adonis2(dist_matrix ~ groups)
+
+plot(hc, labels = subset$location1)
+rect.hclust(hc, k = 3, border = "red")  # You can specify color here
+```
+
+now i want to plot those cluster onto a map to visualize any location patterns 
+```{r}
+subset$group <- groups
+```
+
+load libraries
+```{r}
+library(rnaturalearth)
+library(rnaturalearthdata)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+```
+
+```{r}
+min_lat <- min(subset$latitude, na.rm = T)
+max_lat <- max(subset$latitude, na.rm = T)
+
+min_lon <- min(subset$longitude, na.rm = T)
+max_lon <- max(subset$longitude, na.rm = T)
+
+subset$group <- as.factor(subset$group)
+  
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = subset, aes(x=longitude, y=latitude, color = group)) +
+  #scale_color_gradient(low = "blue", high = "red", na.value = "black") +  # Color gradient for counts
+  #facet_grid(collection_year~CommonName) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "count") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+# Install and load the `indicspecies` package
+#install.packages("indicspecies")
+library(indicspecies)
+
+# Assume `taxa_table` is your presence/absence or abundance table and `clusters` is the grouping variable from cutree
+#indval_result <- multipatt(index_subset[,-1], groups, func = "IndVal.g")
+indval_result <- multipatt(binary_subset[,-1], groups, func = "IndVal.g")
+
+# Summary of indicator species analysis
+summary(indval_result)
 ```
 

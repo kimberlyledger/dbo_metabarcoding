@@ -13,14 +13,13 @@ libraries
 library(tidyverse)
 library(ggplot2)
 rename <- dplyr::rename
-#library(viridis)
-#library(ggrepel)
 ```
 
 the data 
 ```{r}
-#taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_filtered.csv") %>%
-taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_pcr_reps.csv") %>%
+taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_filtered.csv") %>%
+#taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_pcr_reps.csv") %>%
+#taxon_table <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/outputs/decontaminated_taxon_table_all.csv") %>%
   select(!X)  %>%
   filter(sample_type == "sample")
 
@@ -74,13 +73,15 @@ mostly pollock (80% and 50%, respectively)
 way higher proportion of reads for arctic cod in 2023 than 2021 
 pretty low proportions of pcod (~1-2%)
 
+remember a higher proportion of pollock in 2021 than 2023 does NOT mean there was more pollock in 2021 
+
 anyway, ~90% of reads go to species level so for now i'll move forward with just the reads that get down to species 
 
-the dataframe i'm working with right now, is already the sum of the three technical replicates for 2023 data - would need to go back a few steps if i want to incorporate variability in tech replicates for 2023 samples (which might be worth it)
+the dataframe i'm working with right now, is already the sum of the three technical replicates for 2023 data (use the 'pcr_reps' output file version if wanting to seperate out the 2023 data)
 
 pivot gadid table 
 ```{r}
-gadids_wide <- gadids[,c(1,2,3,8,15)] %>%
+gadids_wide <- gadids[,c(1,6,13)] %>%
   pivot_wider(names_from = taxon, values_from = tot_reads)
 ```
 
@@ -92,14 +93,9 @@ gadids_w_meta <- metadata_join %>%
   replace_na(list('Arctogadus glacialis' = 0, 'Boreogadus saida' = 0, 'Eleginus gracilis' = 0, 'Gadidae' = 0, 'Gadus' = 0, 'Gadus chalcogrammus' = 0, 'Gadus macrocephalus' = 0))
 ```
 
-for each station and year (i.e. combine bottles from multiple depths), count the total number of bottles and number of bottles with detections for each species 
+for each station and year (i.e. combine bottles from multiple depths), count the total number of bottles and number of bottles with detections for each species, can calculate the proportion of positive biologial replicates per station  
 
 ```{r}
-#gadids_w_meta %>%
-#  group_by(collection_year, location1, `Arctogadus glacialis`, `Boreogadus saida`, `Eleginus gracilis`, `Gadus chalcogrammus`, `Gadus macrocephalus`) %>%
-#  summarize(n_bottles = n(),
-#            AG = sum())
-
 pres <- gadids_w_meta %>%
   group_by(collection_year, location1) %>%
   summarize(
@@ -129,6 +125,62 @@ df <- gadids_w_meta %>%
             mean_salinity = mean(salinity, na.rm = T)) %>%
   left_join(pres)
 ```
+
+let's start by mapping these
+
+plot proportion of positive biological replicates for a species at a station 
+```{r}
+library(rnaturalearth)
+library(rnaturalearthdata)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+df_prop_pos <- df %>%
+  pivot_longer(cols = c(prop_AG:prop_GM), values_to = "proportion", names_to = "taxa") %>%
+  mutate(taxa = ifelse(taxa == "prop_AG", "Polar cod", taxa),
+         taxa = ifelse(taxa == "prop_BS", "Arctic cod", taxa),
+         taxa = ifelse(taxa == "prop_EG", "Saffron cod", taxa),
+         taxa = ifelse(taxa == "prop_GC", "Walleye pollock", taxa),
+         taxa = ifelse(taxa == "prop_GM", "Pacific cod", taxa))
+
+min_lat <- min(df_prop_pos$latitude, na.rm = T)
+max_lat <- max(df_prop_pos$latitude, na.rm = T)
+
+min_lon <- min(df_prop_pos$longitude, na.rm = T)
+max_lon <- max(df_prop_pos$longitude, na.rm = T)
+
+df_prop_pos$collection_year <- as.factor(df_prop_pos$collection_year)
+
+df_prop_pos <- df_prop_pos %>%
+  filter(taxa %in% c("Arctic cod", "Walleye pollock"))
+
+plot <- ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = df_prop_pos, aes(x=longitude, y=latitude, color = proportion)) +
+  scale_color_gradient(low = "blue", high = "red", na.value = "black") +  # Color gradient for counts
+  facet_grid(collection_year~taxa) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "proportion of positive") +
+  theme(axis.text.x = element_text(angle = 90))
+
+plot
+```
+
+```{r}
+#ggsave("/home/kimberly.ledger/dbo_metabarcoding/outputs/ac_wp.png", plot = plot, dpi = 300)
+```
+
+
+
+
+
+
+
+
+let's make some heatmap plots by latitude and species 
+
+
+
 
 
 i'm not sure the mean temp is the appropriate thing to use in these models... but for now. 

@@ -4,106 +4,249 @@ output: html_document
 date: "2024-10-22"
 ---
 
+updated 10/29/24 - using new BASIS data export from Andrew Diamond 
+
 ```{r}
 library(tidyverse)
+library(taxize)
 ```
 
-read in the chukchi catch data from 2012 and 2013 that Matt extracted from AKFIN 
+read in BASIS catch data from >60N in years of Integrated Arctic Surveys
 ```{r}
-chukchi_catch <- readRDS("/home/kimberly.ledger/dbo_metabarcoding/data/chukchi_catch.RDS")
+chukchi_catch <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/Kim_Arctic_10.28.24.csv") %>%
+  filter(!StationID %in% c("20171602001", "20171602002", "20171602003"))  # remove three NBS stations below 60N that were included in data export
 
+# what unique cruises are in this data and how many station did each sample? 
+chukchi_catch %>%
+  separate(StationID, into = c("year_vessel_cruise", "station"), sep = 8, remove = F) %>%
+  group_by(year_vessel_cruise) %>%
+  summarize(n_stations = n_distinct(station))
+```
+
+get full taxonomic info for the taxa caught
+```{r}
+# taxa list for this catch data 
+taxa_list <- unique(chukchi_catch$ScientificName)
+
+# look up the tsn codes of basis surveys  
 tsn_codes <- httr::content(
     httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/basis_tsn'),
     type = "application/json") %>%
   bind_rows() %>%
   rename_with(tolower) %>%
   dplyr::rename(speciestsn = tsn) %>%
-  select(speciestsn, commonname, scientificname)
-
-chukchi_catch <- chukchi_catch %>%
-  left_join(tsn_codes, by = "speciestsn")
-
-catch_summary <- chukchi_catch %>%
-  group_by(sampleyear, commonname, scientificname) %>%
-  summarize(catchwt = sum(totalcatchwt),
-            catchnum = sum(totalcatchnum)) 
-```
-
-how many stations were sampled per year? 
-```{r}
-chukchi_catch %>%
-  group_by(sampleyear) %>%
-  summarise(unique_stations = n_distinct(stationid))
-```
-
-get full taxonomic info for the taxa caught
-```{r}
-library(taxize)
-
-tax <- chukchi_catch %>%
   select(speciestsn, commonname, scientificname) %>%
-  unique() %>%
-  mutate(speciestsn = as.numeric(speciestsn)) %>%
-  filter(!speciestsn <= 99)
+  filter(scientificname %in% taxa_list)
 
-taxonomy_info <- classification(tax$speciestsn, db = "itis")
+full_classification <- classification(tsn_codes$speciestsn, db = "itis")
 
 # Remove any NULL or empty results from the list
-taxonomy_info_clean <- taxonomy_info %>%
-  keep(~ !is.null(.)) %>%     # Keep only non-null elements
-  discard(~ nrow(.) == 0)     # Discard empty data frames
+full_classification_clean <- full_classification  %>%
+  keep(~ !is.null(.) && is.data.frame(.) && nrow(.) > 0)
 
 # Convert the list of taxonomies into a dataframe
-taxonomy_df <- taxonomy_info_clean %>%
+taxonomy_df <- full_classification_clean %>%
   bind_rows(.id = "speciestsn") %>%
   select(!id) %>%
-  pivot_wider(names_from = rank, values_from = name)
+  pivot_wider(names_from = rank, values_from = name) %>%
+  select(speciestsn, class, order, family, genus, species) %>%
+  filter(speciestsn != 171582) #remove duplicate entry
 
-# Convert tsn_id to numeric so it can join easily
-taxonomy_df$speciestsn <- as.numeric(taxonomy_df$speciestsn)
+# join to my taxa list 
+taxa_df <- tsn_codes %>%
+  left_join(taxonomy_df, by = "speciestsn")
+
+# i am going to filter by class == "Teleostei" since that's what the MiFish primer's target, do any of the entries with class == NA need to stay? 
+taxa_na <- taxa_df %>%
+  filter(is.na(class))
+taxa_na
 ```
 
-explore the taxonomy a bit - just the fishes 
+okay, so sturgeon poacher's scientific name is misspelled 
 ```{r}
-tax_out <- taxonomy_df %>%
-  filter(class == "Teleostei") %>%
-  select(speciestsn, order, family, genus, species) %>%
-  arrange(order)
+missing_taxa <- data.frame(matrix(ncol = ncol(taxa_na), nrow = 6))
+colnames(missing_taxa) <- colnames(taxa_na)
 
-temp <- chukchi_catch %>%
-  select(speciestsn, commonname, scientificname) %>%
-  mutate(speciestsn = as.numeric(speciestsn)) %>%
-  filter(speciestsn > 160000) %>%
-  filter(speciestsn < 180000) %>%
-  unique()
+missing_taxa$speciestsn <- c("167481", "171582", "171584", "171587", "167281", "167373")
+missing_taxa$commonname <- c("Sturgeon Poacher", "Slender eelblenny", "Daubed shanny", "Stout eelblenny", "Butterfly sculpin", "Ribbed Sculpin")
+missing_taxa$scientificname <- c("Podothecus acipenserinus", "Lumpenus fabricii", "Lumpenus maculatus", "Lumpenus medius", "Hemilepidotus papilio", "Triglops pingeli")
+missing_taxa$class <- c("Teleostei", "Teleostei", "Teleostei", "Teleostei", "Teleostei", "Teleostei") 
+missing_taxa$order <- c("Perciformes", "Perciformes", "Perciformes", "Perciformes", "Perciformes", "Perciformes")
+missing_taxa$family <- c("Agonidae", "Lumpenidae", "Lumpenidae", "Lumpenidae", "Cottidae", "Cottidae")
+missing_taxa$genus <- c("Podothecus", "Lumpenus", "Lumpenus", "Lumpenus", "Hemilepidotus", "Triglops")
+missing_taxa$species <- c("Podothecus acipenserinus", "Lumpenus fabricii", "Lumpenus maculatus", "Lumpenus medius", "Hemilepidotus papilio", "Triglops pingeli")
 
-temp_w_tax <- temp %>%
-  left_join(tax_out)
+# Update `taxa_df` with values from `missing_taxa` for matching `speciestsn`
+updated_taxa_df <- taxa_df %>%
+  rows_update(missing_taxa, by = "speciestsn")
+
+updated_taxa_df %>%
+  filter(is.na(class))
 ```
 
-
-
-join taxonomy to catch 
+join full taxonomic information to the catch data and filter to just retain the fish 
 ```{r}
-chukchi_catch_w_tax <- chukchi_catch %>%
-  mutate(speciestsn = as.numeric(speciestsn)) %>%
-  left_join(taxonomy_df)
-```
-
-
-```{r}
-fish_catch <- chukchi_catch_w_tax %>%
+fish_catch <- chukchi_catch %>%
+  dplyr::rename(commonname = "CommonName") %>%
+  dplyr::rename(scientificname = "ScientificName") %>%
+  left_join(updated_taxa_df) %>%
   filter(class == "Teleostei")
 ```
 
-double check species in catch 
+how many taxa are identified to the species level, and if not, what are the IDs? 
 ```{r}
 fish_catch %>%
-  select(speciestsn, commonname, scientificname) %>%
+  filter(scientificname == species) %>%
+  select(commonname, scientificname) %>%
+  unique()
+
+fish_catch %>%
+  filter(scientificname != species | is.na(species) | is.na(genus) | is.na(family) | is.na(order)) %>%
+  select(commonname, scientificname, species) %>%
   unique()
 ```
 
-will need to think about how genus-level, etc ids get counted... 
+okay, let's make a taxon column that's analogous to the eDNA mb data that is the lowest taxonomic resolution ID 
+
+```{r}
+fish_catch <- fish_catch %>%
+  mutate(taxon = ifelse(scientificname == species, species, NA),
+         taxon = ifelse(scientificname == "Osmerus mordax dentex", species, taxon),
+         taxon = ifelse(scientificname == "Clupea pallasi", species, taxon),
+         taxon = ifelse(scientificname == "Lumpenus maculatus", species, taxon),
+         taxon = ifelse(scientificname == "Myoxocephalus scorpiodes", species, taxon),
+         taxon = ifelse(scientificname == "Eumesogrammus preacisus", species, taxon))
+
+fish_catch <- fish_catch %>%
+  mutate(taxon = ifelse(is.na(taxon) & !is.na(genus), genus, taxon)) %>%
+  mutate(taxon = ifelse(is.na(taxon) & !is.na(family), family, taxon)) %>%
+  filter(!is.na(taxon))  #this removes just a few unidentified fish and flatfish 
+
+fish_catch %>%
+  select(commonname, scientificname, order, family, genus, species, taxon) %>%
+  unique()  
+```
+
+hooray! taxon ids are looking good, but let's verify that all the species are known to occur in the North Pacific and/or Pacific Arctic. i'm not going to worry about taxa that are above species level... 
+
+```{r}
+library(rfishbase)
+
+#one-time download of all fishbase tables... this takes a bit 
+fb_import()
+
+spp_list <- unique(fish_catch$species)
+
+#first, validate species names using rfishbase synonyms
+spp_df <- synonyms(spp_list)
+
+#first use synonym column 
+
+#get distribution info 
+spp_distribution <- distribution(spp_df$Species) %>%
+  select(Species, FAO) %>%
+  unique()
+
+#add column to designate if we will consider a species as "in range"- for this study, this will be NE Pacific and Arctic Ocean 
+spp_distribution_range <- spp_distribution %>%
+  mutate(in_range = ifelse(is.na(FAO), NA, "no"),
+         in_range = ifelse(FAO == "Pacific, Northeast", "yes", in_range),
+         in_range = ifelse(FAO == "Arctic Ocean", "yes", in_range))
+
+#keep just a list of spp names and yes/no/NA for "in range"  - this way we can keep track of what spp didn't have any reference information in fishbase to determine range 
+spp_range <- spp_distribution_range %>%
+  select(Species, in_range) %>%
+  unique() %>%
+  filter(!is.na(Species))
+
+# Find species with "no" in_range but no "yes" for the same species
+no_without_yes <- spp_range %>%
+  group_by(Species) %>%
+  filter(all(in_range == "no")) %>%
+  distinct(Species)
+
+# check that none of these species known as Atlantic Arctic Species 
+atlantic_arctic_spp <- read.csv("/home/kimberly.ledger/BeringSea_Arctic_eDNA/data/AtlanticArctic_SpeciesList.csv")
+
+spp_df %>%
+  filter(Species %in% atlantic_arctic_spp$Name)
+```
+
+cool, cool taxonomy looks good to go 
+
+let's make a quick summary table of the fish catch 
+```{r}
+fish_catch %>%
+  separate(StationID, into = c("year_vessel_cruise", "station"), sep = 8, remove = F) %>%
+  group_by(year_vessel_cruise, taxon) %>%
+  summarize(sum_TotalCatchNum = sum(TotalCatchNum),
+            sum_TotalCatchWt = sum(TotalCatchWt))
+```
+
+alright, now since i know that the field IDs of 2017 and 2017 gadids were not great, I will reassign age-0 gadids based on the genetic ID proportions 
+
+```{r}
+gadid_age0 <- fish_catch %>%
+  filter(SampleYear %in% c(2017, 2019)) %>%
+  filter(family == "Gadidae") %>%
+  filter(LHSCode == "A0") %>%                 #### come back and check/add U after Andrew looks at the data
+  filter(TowType == "Surface")
+```
+
+read in gadid catch datafile that i reformatted to better work with in R 
+```{r}
+genetic_ids_2017 <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/gadidsamples2010to2019.csv") %>%
+  #filter(collection_year %in% c(2017, 2019)) #%>%
+  filter(collection_year %in% c(2017)) %>%
+  dplyr::rename(EQ_Latitude = StartLatitude_N) %>%
+  dplyr::rename(EQ_Longitude = StartLongitude_W)
+```
+
+try to identify the trawl station IDs associated with the catch dataset using the lat/long
+```{r}
+station_locations_2017 <- fish_catch %>%
+  #filter(SampleYear %in% c(2017, 2019)) %>%
+  filter(SampleYear %in% c(2017)) %>%
+  select(StationID, TowType, EQ_Latitude, EQ_Longitude) %>%
+  unique()
+
+genetic_ids_2017 <- genetic_ids_2017 %>%
+  left_join(station_locations_2017)
+
+## station where lat/long did not match 
+no_match_2017 <- genetic_ids_2017 %>%
+  filter(is.na(StationID)) %>%
+  select(EQ_Latitude, EQ_Longitude) %>%
+  unique()
+
+## maybe a fuzzyjoin will work..
+library(fuzzyjoin)
+
+genetic_ids_2017_no_match <- genetic_ids_2017 %>%
+  filter(is.na(StationID)) %>%
+  select(AlternateID:EQ_Longitude)
+  
+# Join with a tolerance of ±0.1 for latitude and longitude
+matched_df_2017 <- fuzzy_left_join(
+  genetic_ids_2017_no_match, station_locations_2017,
+  by = c("EQ_Latitude" = "EQ_Latitude", "EQ_Longitude" = "EQ_Longitude"),
+  match_fun = list(
+    function(x, y) abs(x - y) <= 0.3,
+    function(x, y) abs(x - y) <= 0.3
+  )
+)
+
+matched_df_2017 %>%
+  filter(is.na(StationID)) %>%
+  select(EQ_Latitude.x, EQ_Longitude.x) %>%
+  unique()
+
+
+#write.csv(matched_df, "/home/kimberly.ledger/dbo_metabarcoding/outputs/genetic_id_w_stations.csv")
+```
+
+
+
 
 
 ```{r}
