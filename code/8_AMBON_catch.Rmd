@@ -1,0 +1,411 @@
+---
+title: "AMBON fish catch - 2015 and 2017"
+output: html_document
+date: "2024-10-30"
+---
+
+libraries
+```{r}
+library(tidyverse)
+library(vegan)
+```
+
+### 2015 AMBON data 
+
+load AMBON 2015 data 
+```{r}
+ambon_2015 <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/AMBON/2015/AMBON_2015Fish_dwc_hybrid2.csv")
+```
+
+checking out the data a bit 
+```{r}
+#any rows with more than one individual? 
+ambon_2015 %>%
+  filter(individualCount > 1)
+
+#how many locations (and do they each have only one unique lat/long?)
+ambon_2015 %>%
+  group_by(locationID, decimalLatitude, decimalLongitude, samplingProtocol) %>%
+  summarize(n = n())
+
+#okay catch from a location might come from multiple lat/longs, but they are all quite close... 
+```
+
+there were two sampling methods used PSBTA (plump-staff beam) and IKMT (Isaccs-Kidd midwater trawl)
+
+distance_towed_m represents effort, and will need to be incorporated if i want to calculate CPUE
+
+what taxa were caught and what is their level on identification? 
+```{r}
+ambon_2015 %>%
+  group_by(lifeStage, scientificName) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count))
+```
+
+non-juveniles identified to genus or species, mostly. and juveniles have family-level ids. 
+empty scientific names are for sampling events with no catch 
+some Teleostei ids, remove? 
+
+interesting? no pollock ids... 
+
+okay, so let me set up two dataframe. (1) event metadata, and (2) taxon table (wide). and there will be two verison of each one with all events and one with only non-zero events 
+
+** maybe i want to be working at the locationID level instead of events... let me continue as is and maybe come back to this. 
+
+```{r}
+ambon_2015_events_all <- ambon_2015 %>%
+  select(eventID:performance) %>%
+  unique()
+```
+
+```{r}
+ambon_2015_taxa_all <- ambon_2015 %>%
+  group_by(eventID, scientificName) %>%
+  summarize(count = n()) %>%
+  mutate(count = as.numeric(count))%>%
+  mutate(scientificName = na_if(scientificName, "")) %>%
+  pivot_wider(names_from = "scientificName", values_from = "count") %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>% # Replace NA with 0 for all columns
+  select(!Teleostei) %>%
+  select(!'NA')
+```
+
+alrighty, so multivariate stats don't run when sites have no taxa info so let's make versions of the dataframes with only non-zero catch events
+
+```{r}
+eventID <- ambon_2015_taxa_all$eventID
+
+ambon_2015_taxa_temp <- ambon_2015_taxa_all[,-1] %>%
+  mutate(row_sum = rowSums(across(everything()), na.rm = TRUE))
+
+ambon_2015_taxa_temp$eventID <- eventID
+
+ambon_2015_taxa_filtered <- ambon_2015_taxa_temp %>%
+  filter(row_sum > 0) %>%
+  select(!row_sum) %>%
+  select(eventID, everything())
+
+ambon_2015_events_filtered <- ambon_2015_events_all %>%
+  filter(eventID %in% ambon_2015_taxa_filtered$eventID)
+```
+
+so the only interesting metadata in this is perhaps lat/long and maybe max sampling depth or bottom depth - but no CTD data included at the moment. 
+
+### 2017 AMBON data 
+
+```{r}
+ambon_2017_occurrence <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/AMBON/2017/AMBON2017_fish_Occurrence_DWC.csv")
+
+#what taxa were caught and what is their level on identification? 
+ambon_2017_occurrence %>%
+  group_by(scientificName) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count))
+
+ambon_2017_taxa <- ambon_2017_occurrence %>%
+  group_by(eventID, scientificName) %>%
+  summarize(count = n()) %>%
+  mutate(count = as.numeric(count))%>%
+  mutate(scientificName = na_if(scientificName, "")) %>%
+  pivot_wider(names_from = "scientificName", values_from = "count") %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) 
+```
+
+
+```{r}
+#this has lat/long/depth
+ambon_2017_event <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/AMBON/2017/AMBON2017_fish_Event_DWC.csv")
+
+#this has individual fish lengths
+ambon_2017_MoF <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/AMBON/2017/AMBON2017_fish_MoF_DWC.csv")
+
+#this has haul specific information - gear type, station, lat/long, station depth, 
+ambon_2017_haul <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/AMBON/2017/AMBON2017_Fish_Data_HaulInfo_lookupTable.csv") %>%
+  select(!X)
+```
+
+haul spreadsheet has everything i need for now (will have to use start or end lat/long, it appears the mid-point lat/long lives in the event table)
+
+*** the eventID column in the "AMBON2017_fish_Event_DWC.csv" does not match the eventID column in the "AMBON2017_fish_MoF_DWC.csv" and "AMBON2017_fish_Occurrence_DWC.csv" files. What happened is that the 0's associated with the Haul # in the eventID are there in the "Event" csv but were dropped in both the "MoF" and "Occurrence" csvs. The correct haul #'s are also in the "AMBON2017_Fish_Data_HaulInfo_lookupTable.csv".
+
+so, in order to merge data, i need to fix the eventID in the occurance data to match the event data... gahh! 
+
+```{r}
+ambon_2017_taxa_temp <- ambon_2017_taxa %>%
+  mutate(eventID = ifelse(eventID == "AMBON_fish_hauls_2017_BBL12_PSBTA-1", "AMBON_fish_hauls_2017_BBL12_PSBTA-100", eventID),
+         eventID = ifelse(eventID == "AMBON_fish_hauls_2017_BBL2_PSBTA-9", "AMBON_fish_hauls_2017_BBL2_PSBTA-90", eventID),
+         eventID =  ifelse(eventID == "AMBON_fish_hauls_2017_BBL4_IKMT-3", "AMBON_fish_hauls_2017_BBL4_IKMT-30", eventID),
+         eventID =  ifelse(eventID == "AMBON_fish_hauls_2017_DBO3.2_PSBTA-1", "AMBON_fish_hauls_2017_DBO3.2_PSBTA-10", eventID),
+         eventID =  ifelse(eventID == "AMBON_fish_hauls_2017_ML1.13_PSBTA-8", "AMBON_fish_hauls_2017_ML1.13_PSBTA-80", eventID),
+         eventID =  ifelse(eventID == "AMBON_fish_hauls_2017_ML1.5_PSBTA-7", "	AMBON_fish_hauls_2017_ML1.5_PSBTA-70", eventID),
+         eventID =  ifelse(eventID == "AMBON_fish_hauls_2017_ML3.14_PSBTA-5", "AMBON_fish_hauls_2017_ML3.14_PSBTA-50", eventID),
+         eventID =  ifelse(eventID == "AMBON_fish_hauls_2017_ML3.6_PSBTA-6", "AMBON_fish_hauls_2017_ML3.6_PSBTA-60", eventID),
+         eventID =  ifelse(eventID == "AMBON_fish_hauls_2017_ML4.1_IKMT-1", "AMBON_fish_hauls_2017_ML4.1_IKMT-10", eventID),
+         eventID =  ifelse(eventID == "AMBON_fish_hauls_2017_ML4.9_PSBTA-4", "AMBON_fish_hauls_2017_ML4.9_PSBTA-40", eventID),
+         eventID = ifelse(eventID == "AMBON_fish_hauls_2017_ML6.11_PSBTA-3", "AMBON_fish_hauls_2017_ML6.11_PSBTA-30", eventID),
+         eventID = ifelse(eventID == "AMBON_fish_hauls_2017_ML1.3_PSBTA-2", "AMBON_fish_hauls_2017_ML1.3_PSBTA-20", eventID)) %>%
+  filter(!eventID %in% c("AMBON_fish_hauls_2017_ML1.3_PSBTA-69", "AMBON_fish_hauls_2017_ML4.13_PSBTA-44"))  ## these station/haul combo does not exist - just one fish removed from dataset here
+```
+
+
+```{r}
+ambon_2017_haul <- ambon_2017_haul %>%
+  mutate(Station = gsub("-", ".", Station)) %>%
+  mutate(Station = ifelse(startsWith(Station, "BBL"), gsub("\\.", "", Station), Station)) %>%
+  unite("station_gear", Station, Gear, sep = "_", remove = F) %>%
+  unite("station_gear_haul", station_gear, Haul, sep = "-", remove = F)
+
+ambon_2017_taxa_temp <- ambon_2017_taxa_temp %>%
+  separate(eventID, into = c("x1", "x2", "x3", "x4", "station", "gear_haul"), sep = "_") %>%
+  unite("station_gear_haul", station, gear_haul, sep = "_", remove = F) %>%
+  select(!x1) %>%
+  select(!x2) %>%
+  select(!x3) %>%
+  select(!x4)
+
+#join to make sure i get matching rows of metadata and taxa 
+ambon_2017_join <- ambon_2017_taxa_temp %>%
+  filter(station != "ML1.3") %>% ### this station has catch data but not in HaulInfo - for now i'm removing but will need to go back and pull info from event table if wanting to include
+  filter(station != "ML4.4") %>%  ### same problem as above
+  left_join(ambon_2017_haul)
+
+ambon_2017_taxa_sorted <- ambon_2017_join %>%
+  select(station_gear_haul, `Aspidophoroides olrikii`:Aspidophoroides)
+
+ambon_2017_haul_sorted <- ambon_2017_join %>%
+  select(station_gear_haul, Cruise:Catch.Notes) %>%
+  rename(decimalLatitude = Start.Lat) %>%
+  rename(decimalLongitude = Start.Long) ## renaming to use StartLat as the location info for plots below 
+```
+
+how best do i use the taxa count table in community analyses? i can make a binary table (pres/abs) and just plug in count data to vegdist() and use bray-curtis distance calculation. since net catch data is not proportional data (maybe unless the net capasity is reached), then i do not need to calculate species proportions ahead of time (unless i just want to be consistent with mb data?)
+
+and maybe i should be working with biomass data (perhaps transformed?) and then using bray-curtics? 
+
+### for now, choose the 2015 or 2017 data to work with 
+
+```{r}
+#count_df_wide <- ambon_2015_taxa_filtered
+count_df_wide <- ambon_2017_taxa_sorted
+
+binary_df_wide <- count_df_wide %>%
+   mutate(across(-1, ~ ifelse(. > 0, 1, .)))
+```
+
+visualize with NMDS and PCA - binary data 
+```{r}
+binary_dist <- vegdist(binary_df_wide[,-1], method = "jaccard")
+binary_mds <- metaMDS(binary_dist)
+
+NMS_data <- binary_mds
+
+#create vectors with the NMS attributes
+NMS_coordinates<-vegan::scores(NMS_data,display="sites")
+NMS_axes<-as.data.frame(NMS_coordinates)
+NMS_scores<-vegan::scores(NMS_data,display="species")
+
+#for_ploting<-as.data.frame(cbind(NMS_coordinates,ambon_2015_events_filtered))
+for_ploting<-as.data.frame(cbind(NMS_coordinates,ambon_2017_haul_sorted))
+
+nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
+  geom_point(aes(NMDS1, NMDS2, colour = decimalLatitude), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
+  coord_fixed()+
+  theme_classic()+ 
+  scale_color_gradient(low = "lightblue", high = "darkblue") +
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
+  #labs(colour = "Latitude", shape = "Year", title = "by latitude") + # add legend labels for Station
+  theme(legend.position = "right", 
+        legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 12), 
+        axis.text = element_text(size = 10)) #+ # add legend at right of plot
+nmds.plot
+
+# pca_result <- prcomp(binary_dist)
+# 
+# # Create a data frame with PCA results
+# #pca_data <- data.frame(pca_result$x, group = ambon_2015_events_filtered$decimalLatitude)
+# pca_data <- data.frame(pca_result$x, group = ambon_2017_haul_sorted$decimalLatitude)
+# 
+# # Visualize PCA with confidence ellipses
+# ggplot(pca_data, aes(x = PC1, y = PC2, color = group)) +
+#   geom_point() +  # Add points
+#   #stat_ellipse(aes(fill = group), alpha = 0.2) +  # Add confidence ellipses
+#   labs(title = "PCA of Presence/Absence Data",
+#        x = "Principal Component 1",
+#        y = "Principal Component 2") +
+#   theme_minimal()
+```
+
+visualize with NMDS and PCA - count data 
+```{r}
+count_dist <- vegdist(count_df_wide[,-1], method = "bray")
+count_mds <- metaMDS(count_dist)
+
+NMS_data <- count_mds
+
+#create vectors with the NMS attributes
+NMS_coordinates<-vegan::scores(NMS_data,display="sites")
+NMS_axes<-as.data.frame(NMS_coordinates)
+NMS_scores<-vegan::scores(NMS_data,display="species")
+
+#for_ploting<-as.data.frame(cbind(NMS_coordinates,ambon_2015_events_filtered))
+for_ploting<-as.data.frame(cbind(NMS_coordinates,ambon_2017_haul_sorted))
+
+
+nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
+  geom_point(aes(NMDS1, NMDS2, colour = decimalLatitude), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
+  coord_fixed()+
+  theme_classic()+ 
+  scale_color_gradient(low = "lightblue", high = "darkblue") +
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
+  labs(colour = "Latitude") +
+  theme(legend.position = "right", 
+        legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 12), 
+        axis.text = element_text(size = 10)) #+ # add legend at right of plot
+nmds.plot
+
+# pca_result <- prcomp(count_dist)
+# 
+# # Create a data frame with PCA results
+# pca_data <- data.frame(pca_result$x, group = ambon_2015_events_filtered$decimalLatitude)
+# 
+# # Visualize PCA with confidence ellipses
+# ggplot(pca_data, aes(x = PC1, y = PC2, color = group)) +
+#   geom_point() +  # Add points
+#   #stat_ellipse(aes(fill = group), alpha = 0.2) +  # Add confidence ellipses
+#   labs(title = "PCA of Presence/Absence Data",
+#        x = "Principal Component 1",
+#        y = "Principal Component 2") +
+#   theme_minimal()
+```
+
+let me add taxa to the NMDS on the count data 
+```{r}
+#spp.fit <- envfit(NMS_data, binary_df_wide[,-1], permutations = 999) # this fits species vectors
+spp.fit <- envfit(NMS_data, count_df_wide[,-1], permutations = 999) # this fits species vectors
+
+spp.scrs <- as.data.frame(scores(spp.fit, display = "vectors")) #save species intrinsic values into dataframe
+spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs)) #add species names to dataframe
+spp.scrs <- cbind(spp.scrs, pval = spp.fit$vectors$pvals) #add pvalues to dataframe so you can select species which are significant
+spp.scrs<- cbind(spp.scrs, abrev = abbreviate(spp.scrs$Species, minlength = 6)) #abbreviate species names
+sig.spp.scrs <- subset(spp.scrs, pval<=0.05) #subset data to show species significant at 0.05
+
+head(spp.scrs)
+
+library(ggrepel)
+nmds.plot +
+   geom_segment(data = sig.spp.scrs, aes(x = 0, xend=NMDS1, y=0, yend=NMDS2), arrow = arrow(length = unit(0.25, "cm")), colour = "grey10", lwd=0.3) + #add vector arrows of significant species
+   ggrepel::geom_text_repel(data = sig.spp.scrs, aes(x=NMDS1, y=NMDS2, label = Species), cex = 3, direction = "both", segment.size = 0.25)
+
+
+#plot just significant species 
+nmds.plot.spp <- ggplot() + 
+  geom_point(data = sig.spp.scrs, aes(NMDS1, NMDS2, colour = Species)) + 
+  ggrepel::geom_text_repel(data = sig.spp.scrs, aes(x=NMDS1, y=NMDS2, label = Species), cex = 3, direction = "both", segment.size = 0.25) + 
+  theme_classic()+ 
+  theme(legend.position = "none") +
+  labs(title = "significant species")
+
+nmds.plot.spp   
+```
+
+okay, will need to think about how/if to use this data. juveniles were not identified to species. and latitude probably isn't the explanatory variable to use. i'd want CTD, etc data.  
+
+Iken et al. 2019 found two clusters of fish communities in 2015 data (mostly one near to shore species and the other farther from shore) when using biomass data. 
+
+
+## permanova 
+```{r}
+# Run PERMANOVA with latitude as the predictor
+
+#binary_lat <- adonis2(binary_dist ~ ambon_2015_events_filtered$decimalLatitude, permutations = 999)
+binary_lat <- adonis2(binary_dist ~ ambon_2017_haul_sorted$decimalLatitude, permutations = 999)
+binary_lat
+
+#count_lat <- adonis2(count_dist ~ ambon_2015_events_filtered$decimalLatitude, permutations = 999)
+count_lat <- adonis2(count_dist ~ ambon_2017_haul_sorted$decimalLatitude, permutations = 999)
+count_lat
+```
+
+okay, so latitude is significant, but will want different environmental variables eventually.... 
+
+
+### could run dbRDA/capscale; indicator analysis: etc 
+
+
+### now let me try a cluster analysis on the fish data
+```{r}
+dist_matrix <- vegdist(binary_df_wide[,-1], method = "jaccard")
+#dist_matrix <- vegdist(count_df_wide[,-1], method = "bray")
+
+# Cluster Dendrogram
+hc <- hclust(dist_matrix, method = "ward.D2")
+
+#plot(hc, labels = ambon_2015_events_filtered$Station)
+plot(hc, labels = ambon_2017_haul_sorted$Station)
+
+# Number of clusters to evaluate
+k.max <- 10
+wss <- numeric(k.max)
+
+# Loop through k values to calculate WSS
+for (k in 1:k.max) {
+  # Cut the dendrogram into k groups
+  cluster_assignment <- cutree(hc, k)
+  
+  # Calculate total within-cluster sum of squares
+  wss[k] <- sum(sapply(unique(cluster_assignment), function(cluster) {
+    sum((dist(binary_df_wide[,-1][cluster_assignment == cluster, ])^2))  # Sum of squares for each cluster
+  }))
+}
+
+# Plot the elbow curve
+plot(1:k.max, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of Clusters (k)", 
+     ylab = "Total Within-Cluster Sum of Squares (WSS)",
+     main = "Elbow Method for Optimal k")
+
+groups <- cutree(hc, k = 3) 
+adonis2(dist_matrix ~ groups)
+
+plot(hc, labels = ambon_2017_haul_sorted$Station)
+rect.hclust(hc, k = 3, border = "red")  # You can specify color here
+```
+
+now i want to plot those cluster onto a map to visualize any location patterns 
+```{r}
+ambon_2017_haul_sorted$fish_group <- groups
+```
+
+load libraries
+```{r}
+library(rnaturalearth)
+library(rnaturalearthdata)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+```
+
+```{r}
+min_lat <- min(ambon_2017_haul_sorted$decimalLatitude, na.rm = T)
+max_lat <- max(ambon_2017_haul_sorted$decimalLatitude, na.rm = T)
+
+min_lon <- min(ambon_2017_haul_sorted$decimalLongitude, na.rm = T)
+max_lon <- max(ambon_2017_haul_sorted$decimalLongitude, na.rm = T)
+
+ambon_2017_haul_sorted$fish_group <- as.factor(ambon_2017_haul_sorted$fish_group)
+  
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = ambon_2017_haul_sorted, aes(x=decimalLongitude, y=decimalLatitude, color = fish_group)) +
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  facet_grid(Gear~fish_group) + 
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "fish cluster") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+group 1&2 vs group 3 is a product of gear 
+
+to do sometime: run GAM models to look at relationships with environmental variables
+

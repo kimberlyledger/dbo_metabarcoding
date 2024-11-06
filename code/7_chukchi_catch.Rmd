@@ -5,15 +5,20 @@ date: "2024-10-22"
 ---
 
 updated 10/29/24 - using new BASIS data export from Andrew Diamond 
+updated again 11/1/23 - using newer version on BASIS export (needed to add beam trawls to be able to match genetic data from 2017/2019) and now genetic data has station and event IDs
+updated 11/4/23 - was missing life history stage column in 11/1 export. but this one is now missing ctd variables 
 
 ```{r}
 library(tidyverse)
 library(taxize)
+library(ggplot2)
+library(viridis)
 ```
+
 
 read in BASIS catch data from >60N in years of Integrated Arctic Surveys
 ```{r}
-chukchi_catch <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/Kim_Arctic_10.28.24.csv") %>%
+chukchi_catch <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/Kim_Arctic_11.4.24.csv") %>%
   filter(!StationID %in% c("20171602001", "20171602002", "20171602003"))  # remove three NBS stations below 60N that were included in data export
 
 # what unique cruises are in this data and how many station did each sample? 
@@ -133,7 +138,7 @@ hooray! taxon ids are looking good, but let's verify that all the species are kn
 library(rfishbase)
 
 #one-time download of all fishbase tables... this takes a bit 
-fb_import()
+#fb_import()
 
 spp_list <- unique(fish_catch$species)
 
@@ -183,106 +188,654 @@ fish_catch %>%
             sum_TotalCatchWt = sum(TotalCatchWt))
 ```
 
-alright, now since i know that the field IDs of 2017 and 2017 gadids were not great, I will reassign age-0 gadids based on the genetic ID proportions 
-
-```{r}
-gadid_age0 <- fish_catch %>%
-  filter(SampleYear %in% c(2017, 2019)) %>%
-  filter(family == "Gadidae") %>%
-  filter(LHSCode == "A0") %>%                 #### come back and check/add U after Andrew looks at the data
-  filter(TowType == "Surface")
-```
-
-read in gadid catch datafile that i reformatted to better work with in R 
-```{r}
-genetic_ids_2017 <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/gadidsamples2010to2019.csv") %>%
-  #filter(collection_year %in% c(2017, 2019)) #%>%
-  filter(collection_year %in% c(2017)) %>%
-  dplyr::rename(EQ_Latitude = StartLatitude_N) %>%
-  dplyr::rename(EQ_Longitude = StartLongitude_W)
-```
-
-try to identify the trawl station IDs associated with the catch dataset using the lat/long
-```{r}
-station_locations_2017 <- fish_catch %>%
-  #filter(SampleYear %in% c(2017, 2019)) %>%
-  filter(SampleYear %in% c(2017)) %>%
-  select(StationID, TowType, EQ_Latitude, EQ_Longitude) %>%
-  unique()
-
-genetic_ids_2017 <- genetic_ids_2017 %>%
-  left_join(station_locations_2017)
-
-## station where lat/long did not match 
-no_match_2017 <- genetic_ids_2017 %>%
-  filter(is.na(StationID)) %>%
-  select(EQ_Latitude, EQ_Longitude) %>%
-  unique()
-
-## maybe a fuzzyjoin will work..
-library(fuzzyjoin)
-
-genetic_ids_2017_no_match <- genetic_ids_2017 %>%
-  filter(is.na(StationID)) %>%
-  select(AlternateID:EQ_Longitude)
-  
-# Join with a tolerance of ±0.1 for latitude and longitude
-matched_df_2017 <- fuzzy_left_join(
-  genetic_ids_2017_no_match, station_locations_2017,
-  by = c("EQ_Latitude" = "EQ_Latitude", "EQ_Longitude" = "EQ_Longitude"),
-  match_fun = list(
-    function(x, y) abs(x - y) <= 0.3,
-    function(x, y) abs(x - y) <= 0.3
-  )
-)
-
-matched_df_2017 %>%
-  filter(is.na(StationID)) %>%
-  select(EQ_Latitude.x, EQ_Longitude.x) %>%
-  unique()
-
-
-#write.csv(matched_df, "/home/kimberly.ledger/dbo_metabarcoding/outputs/genetic_id_w_stations.csv")
-```
-
-
-
-
+what gear type was used in each of the years and what gear type caught the most fish and specifically the most gadids? 
+- note that 2019 bottom trawl catch is not in the database 
 
 ```{r}
 fish_catch %>%
-  filter(order == "Gadiformes") %>%
-  select(commonname) %>%
+  group_by(SampleYear, TowType) %>%
+  summarize(catchwt = sum(TotalCatchWt),
+            catchnum = sum(TotalCatchNum, na.rm = T)) 
+
+fish_catch %>%
+  filter(family == "Gadidae") %>%
+  group_by(SampleYear, TowType) %>%
+  summarize(catchwt = sum(TotalCatchWt),
+            catchnum = sum(TotalCatchNum, na.rm = T)) 
+```
+
+okay, for 2017 and 2019 I am just going to use Midwater trawl catch data (most fish overall and gadids) 
+for 2012 and 2013, i'll use both midwater and surface trawl data (i think since both have lots of fish and gadids)
+
+let me remove the 2017 bottom and surface trawl data, and the 2019 surface trawl data 
+```{r}
+fish_catch_filtered <- fish_catch %>%
+  filter(!(SampleYear == 2017 & TowType == "Bottom"),
+         !(SampleYear == 2017 & TowType == "Surface"),
+         !(SampleYear == 2019 & TowType == "Surface"))
+```
+
+
+alright, now since i know that the field IDs of 2017 and 2017 gadids were not great, I will reassign age-0 gadids based on the genetic ID proportions
+- i'm only going to adjust field IDs of the arctic cod and pollock (small number of saffron cod and pacific cod were id'd in the field but it's not clear that those individuals were part of the specimens included in genetics IDs)
+
+```{r}
+gadid_age0 <- fish_catch_filtered %>%
+  filter(SampleYear %in% c(2017, 2019)) %>%
+  #filter(family == "Gadidae") %>%
+  filter(taxon == "Boreogadus saida" | taxon == "Gadus chalcogrammus") %>%
+  filter(LHSCode == "A0") %>% 
+  group_by(StationID, EventCode, SampleYear, EQ.Latitude, EQ.Longitude, TowType) %>%
+  summarise(n_catch = sum(TotalCatchNum),
+            total_wt = sum(TotalCatchWt),
+            ind_wt = total_wt/n_catch) %>%
+  mutate(StationID = as.numeric(StationID)) %>%
+  mutate(EventCode = as.numeric(EventCode))
+
+gadid_age0_by_fieldID <- fish_catch_filtered %>%
+  filter(SampleYear %in% c(2017, 2019)) %>%
+  filter(taxon == "Boreogadus saida" | taxon == "Gadus chalcogrammus") %>%
+  #filter(family == "Gadidae") %>%           
+  filter(LHSCode == "A0") %>%
+  group_by(StationID, EventCode, SampleYear, EQ.Latitude, EQ.Longitude, TowType, commonname) %>%
+  summarise(n_catch = sum(TotalCatchNum),
+            total_wt = sum(TotalCatchWt),
+            ind_wt = total_wt/n_catch) %>%
+  ungroup() %>%
+  group_by(StationID, EventCode, SampleYear, EQ.Latitude, EQ.Longitude, TowType) %>%
+  mutate(total_catch = sum(n_catch)) %>%
+  mutate(prop_catch = n_catch/total_catch)
+```
+
+there's one haul of unusually heavy A0 pollock (20191601068 event 2) but the genetic ids show all but one are indeet pollock so i don't think it'll mess with things if they stay in the data set for adjustment  
+
+okay, there are 74 trawl events that I'm hoping to correct with genetic IDs. let's see how many of those 74 trawls actually had genetic samples collected and analyzed. 
+
+read in gadid catch datafile that i reformatted to better work with in R 
+```{r}
+genetic_ids <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/gadidsamples2010to2019_stationid.csv") %>%
+  filter(collection_year %in% c(2017, 2019)) %>%
+  select(AlternateID:Comments) %>%
+  filter(CommonName != "UNK") %>%
+  filter(StationID != "#N/A") %>%
+  dplyr::rename(SampleYear = collection_year) %>%
+  mutate(StationID = as.numeric(StationID)) %>%
+  mutate(EventCode = as.numeric(EventCode))
+```
+
+calculate the species proportions for gadids for each unique stationID and eventID
+```{r}
+gadid_comp <- genetic_ids %>%
+  group_by(StationID, EventCode, SampleYear) %>%
+  summarize(n_sampled = n(),
+            n_AC = sum(CommonName == "Arctic cod"),
+            n_WP = sum(CommonName == "Walleye pollock"),
+            n_SC = sum(CommonName == "Saffron cod"),
+            n_PolC = sum(CommonName == "Polar cod"),
+            n_PC = sum(CommonName == "Pacific cod")) %>%
+  mutate(prop_AC = n_AC/n_sampled,
+         prop_WP = n_WP/n_sampled,
+         prop_SC = n_SC/n_sampled,
+         prop_PolC = n_PolC/n_sampled,
+         prop_PC = n_PC/n_sampled)
+```
+
+okay, there are 158 trawl events with genetic info - but some might be events that i don't plan to use or have small sample sizes for reliable adjustments 
+
+test join - putting genetic IDs on the left for now 
+```{r}
+gadid_join_all <- gadid_comp %>%
+  full_join(gadid_age0,  by = c("StationID", "EventCode", "SampleYear")) 
+```
+
+sweet. from the look of this table 73/74 trawl events do have genetics samples from them. there are also lots of trawl events that have genetic samples that i don't plan to use 
+
+```{r}
+gadid_join_filtered <- gadid_join_all %>%
+  filter(!is.na(n_sampled)) %>%  ## removes the one catch data that does not have associated genetic samples (the catch# was small)
+  filter(!is.na(n_catch)) %>% ##removes genetic samples that belong to trawls i'm not using
+  mutate(num_estimate_AC = prop_AC*n_catch,
+         num_estimate_WP = prop_WP*n_catch,
+         num_estimate_SC = prop_SC*n_catch,
+         num_estimate_PolC = prop_PolC*n_catch,
+         num_estimate_PC = prop_PC*n_catch,
+         wt_estimate_AC = prop_AC*total_wt,
+         wt_estimate_WP = prop_WP*total_wt,
+         wt_estimate_SC = prop_SC*total_wt,
+         wt_estimate_PolC = prop_PolC*total_wt,
+         wt_estimate_PC = prop_PC*total_wt)
+```
+
+** should i be estimating proportions of pcod, saffron cod? i removed them from the catch side, maybe they should also not be considered here?? ahh, for now they stay. 
+
+
+```{r}
+gadid_estimates_long <- gadid_join_filtered %>%
+  select(c(StationID:SampleYear, num_estimate_AC:wt_estimate_PC)) %>%
+  pivot_longer(cols = c(num_estimate_AC:num_estimate_PC), names_to = "commonname", values_to = "n_estimate") %>%
+  mutate(commonname = ifelse(commonname == "num_estimate_AC", "Arctic Cod", commonname),
+         commonname = ifelse(commonname == "num_estimate_WP", "Pollock", commonname),
+         commonname = ifelse(commonname == "num_estimate_SC", "Saffron Cod", commonname),
+         commonname = ifelse(commonname == "num_estimate_PolC", "Polar Cod", commonname),
+         commonname = ifelse(commonname == "num_estimate_PC", "Pacific Cod", commonname)) %>%
+  pivot_longer(cols = c(wt_estimate_AC:wt_estimate_PC), names_to = "commonname2", values_to = "wt_estimate") %>%
+  mutate(commonname2 = ifelse(commonname2 == "wt_estimate_AC", "Arctic Cod", commonname2),
+         commonname2 = ifelse(commonname2 == "wt_estimate_WP", "Pollock", commonname2),
+         commonname2 = ifelse(commonname2 == "wt_estimate_SC", "Saffron Cod", commonname2),
+         commonname2 = ifelse(commonname2 == "wt_estimate_PolC", "Polar Cod", commonname2),
+         commonname2 = ifelse(commonname2 == "wt_estimate_PC", "Pacific Cod", commonname2)) %>%
+  filter(commonname == commonname2) %>%
+  filter(n_estimate > 0) %>%
+  select(!commonname2)
+```
+
+
+```{r}
+gadid_check <- gadid_estimates_long %>%
+  full_join(gadid_age0_by_fieldID) %>%
+  filter(StationID != "20191601087") %>%  ## no genetic associated with this trawl
+  arrange(StationID, EventCode) %>%
+  mutate(n_estimate = ifelse(is.na(n_estimate), 0, n_estimate)) %>%
+  mutate(wt_estimate = ifelse(is.na(wt_estimate), 0, wt_estimate)) %>%
+  mutate(n_catch = ifelse(is.na(n_catch), 0, n_catch)) %>%
+  mutate(total_wt = ifelse(is.na(total_wt), 0, total_wt)) %>%
+  select(StationID:wt_estimate, n_catch:total_wt) %>%
+  mutate(LHSCode = "A0") %>%
+  rename(TotalCatchNum = n_catch) %>%
+  rename(TotalCatchWt = wt_estimate)
+```
+
+### CONTINUE HERE! Need to add a plot for the biomass!!! 
+
+
+let me plot the original species composition and then the corrected compostions 
+```{r}
+gadid_to_plot <- gadid_check %>%
+  group_by(StationID, EventCode) %>%
+  mutate(estimate_sum = sum(n_estimate),
+         estimate_prop = n_estimate/estimate_sum) %>%
+  mutate(catch_sum = sum(TotalCatchNum),
+         catch_prop = TotalCatchNum/catch_sum) %>%
+  mutate(StationID = as.factor(StationID)) %>%
+  unite("Station_Event", StationID, EventCode, remove = F, sep = "_")
+
+
+### remember that i filtered to just keep field ids to arctic cod and pollock, so the very few other gadids are not included here. 
+field_plot <- gadid_to_plot %>%
+  ggplot(aes(x= Station_Event, y = catch_prop, fill = commonname)) +
+  geom_bar(stat = "identity") + 
+  theme_bw() +
+  labs(
+    y = "proportion of gadid catch (field IDs)",
+    x = "station") +
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+genetic_plot <- gadid_to_plot %>%
+  ggplot(aes(x= Station_Event, y = estimate_prop, fill = commonname)) +
+  geom_bar(stat = "identity") + 
+  theme_bw() +
+  labs(
+    y = "proportion of gadid catch (genetic IDs)",
+    x = "station") +
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+field_plot
+genetic_plot
+```
+
+alright, now that i have corrected counts/num for age0 gadids I want to fix those in the "fish_catch_filtered" data frame 
+
+```{r}
+fish_catch_updated <- fish_catch_filtered %>%
+  full_join(gadid_check) %>%
+  mutate(TotalCatchNum_corrected = ifelse(is.na(n_estimate), TotalCatchNum, n_estimate)) %>%
+  select(StationID, EventCode, SampleYear, commonname, LHSCode, TotalCatchNum, n_estimate, TotalCatchNum_corrected)
+
+plot_gadids <- fish_catch_updated %>%
+  filter(!is.na(n_estimate))
+
+ggplot(plot_gadids, aes(x=TotalCatchNum, y=n_estimate, color = commonname)) +
+  geom_point() + 
+  theme_bw() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black")
+
+## remove some of the large count data trawls to visualize 
+plot_gadids %>%
+  filter(TotalCatchNum < 20000) %>%
+  ggplot(aes(x=TotalCatchNum, y=n_estimate, color = commonname)) +
+  geom_point() + 
+  theme_bw() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black")
+```
+
+since i could not retain lat/long metadata during the joining of the genetic data, let me get that info back and then make some plots
+```{r}
+station_event_metadata <- fish_catch_filtered %>%
+  select(StationID:Gear.Depth) %>%
   unique()
 ```
 
-
-pivot wider and remove 2010 samples and stations <60N
 ```{r}
-fish_wide <- fish_catch %>%
-  filter(sampleyear != 2010) %>%
-  filter(!is.na(scientificname)) %>%
-  filter(!is.na(totalcatchnum)) %>%
-  filter(eq_latitude >= 60) %>%
-  select(stationid, totalcatchnum, scientificname) %>%
-  pivot_wider(names_from = scientificname, values_from = totalcatchnum, values_fn = sum, values_fill = 0)
+fish_catch_updated <- fish_catch_updated %>%
+  left_join(station_event_metadata)
 ```
 
-station metadata of interest - will need to see if i can track down temp, salinity, etc..
-need to ask someone about sample method code 
+even though Effort metric is present for most trawls, it seems hard to compare counts in a quantitative way over years. - so i'm not even going to try and do across year abundance or biomass comparisons for single species. but how about presence/absence for gadids over time? that seems reasonable. 
+
+load libraries
 ```{r}
-chuk_meta <- chukchi_catch %>%
-  filter(sampleyear != 2010) %>%
-  filter(eq_latitude >= 60) %>%
-  select(stationid, sampleyear, vesselcode.x, stationnumber.x, hauldate, eq_latitude, eq_longitude) %>%
-  unique()
+library(rnaturalearth)
+library(rnaturalearthdata)
+world <- ne_countries(scale = "medium", returnclass = "sf")
 ```
 
-leftjoin the catch to the metadata to fill in trawls with nothing
+
+## arctic cod detections
 ```{r}
-fish_wide_all_stations <- chuk_meta %>%
-  left_join(fish_wide, by = "stationid")
+binary_AC <- temp %>%
+  filter(commonname == "Arctic Cod") %>%
+  mutate(pres_fieldID = ifelse(TotalCatchNum > 0, 1, 0),
+         pres_geneticID = ifelse(TotalCatchNum_corrected > 0, 1, 0))
 ```
+
+```{r}
+min_lat <- min(binary_AC$EQ.Latitude, na.rm = T)
+max_lat <- max(binary_AC$EQ.Latitude, na.rm = T)
+
+min_lon <- min(binary_AC$EQ.Longitude, na.rm = T)
+max_lon <- max(binary_AC$EQ.Longitude, na.rm = T)
+  
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = binary_AC, aes(x=EQ.Longitude, y=EQ.Latitude, color = as.factor(pres_fieldID))) +
+  facet_grid(~SampleYear) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "") +
+  theme(axis.text.x = element_text(angle = 90))
+
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = binary_AC, aes(x=EQ.Longitude, y=EQ.Latitude, color = as.factor(pres_geneticID))) +
+  facet_grid(~SampleYear) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+binary_WP <- temp %>%
+  filter(commonname == "Pollock") %>%
+  mutate(pres_fieldID = ifelse(TotalCatchNum > 0, 1, 0),
+         pres_geneticID = ifelse(TotalCatchNum_corrected > 0, 1, 0))
+```
+
+```{r}
+min_lat <- min(binary_WP$EQ.Latitude, na.rm = T)
+max_lat <- max(binary_WP$EQ.Latitude, na.rm = T)
+
+min_lon <- min(binary_WP$EQ.Longitude, na.rm = T)
+max_lon <- max(binary_WP$EQ.Longitude, na.rm = T)
+  
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = binary_WP, aes(x=EQ.Longitude, y=EQ.Latitude, color = as.factor(pres_fieldID))) +
+  facet_grid(~SampleYear) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  scale_color_manual(values = c("0" = "grey", "1" = "red")) + 
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "") +
+  theme(axis.text.x = element_text(angle = 90))
+
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = binary_WP, aes(x=EQ.Longitude, y=EQ.Latitude, color = as.factor(pres_geneticID))) +
+  facet_grid(~SampleYear) + 
+  coord_sf(xlim = c(min_lon-2, max_lon+2), ylim = c(min_lat-1, max_lat+1), expand = FALSE) +
+  scale_color_manual(values = c("0" = "grey", "1" = "red")) + 
+  theme_bw() +xlab("Longitude") +ylab("Latitude")+
+  labs(color = "") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+
+alright what i really want to do is community multivariate stats on the corrected counts. (well maybe it should be biomass, but that'll take some back tracking to get to work.)
+
+make wide species table and associated metadata table 
+
+```{r}
+temp2 <- temp %>%
+  unite("Station_Event", StationID, EventCode, sep = "_", remove = F) %>%
+  group_by(Station_Event, commonname) %>%
+  summarize(TotalCatch = sum(TotalCatchNum_corrected)) %>%                               ## i'm adding across lifestages here. might be better to deal with biomass
+  pivot_wider(names_from = "commonname", values_from = "TotalCatch", values_fill = 0)
+```
+
+get full metadata in the same format 
+```{r}
+station_meta <- read.csv("/home/kimberly.ledger/dbo_metabarcoding/data/Kim_Arctic_11.1.24.csv") %>%
+  unite("Station_Event", StationID, EventCode, sep = "_", remove = F) %>%
+  select(c(Station_Event:Gear.Depth, SurfaceTemperature:Bottom_CHLA)) %>%
+  unique() %>%
+  mutate(across(everything(), ~ ifelse(gsub("#N/A", NA, .) == "NA", NA, .)),
+         SurfaceTemperature = ifelse(SurfaceTemperature == 0, NA, SurfaceTemperature),
+         SurfaceSalinity = ifelse(SurfaceSalinity == 0, NA, SurfaceSalinity),
+         Surface_CHLA = ifelse(Surface_CHLA == 0, NA, Surface_CHLA),
+         BottomTemperature = ifelse(BottomTemperature == 0, NA, BottomTemperature),
+         BottomSalinity = ifelse(BottomSalinity == 0, NA, BottomSalinity),
+         Bottom_CHLA = ifelse(Bottom_CHLA == 0, NA, Bottom_CHLA))
+```
+
+hmm quite a bit of 0's and "#NA" for temp, salinity, chloro... 
+
+
+```{r}
+temp_w_meta <- temp2 %>%
+  left_join(station_meta)
+
+temp_w_meta
+```
+
+separate now 
+```{r}
+taxa_table <- temp_w_meta[,c(1:76)] %>%
+  mutate(across(everything(), ~ ifelse(is.na(.), 0, .)))
+
+meta_station <- temp_w_meta[,c(1,77:93)] %>%
+  mutate(SurfaceTemperature = as.numeric(SurfaceTemperature),
+         SurfaceSalinity = as.numeric(SurfaceSalinity),
+         Surface_CHLA = as.numeric(Surface_CHLA),
+         BottomTemperature = as.numeric(BottomTemperature),
+         BottomSalinity = as.numeric(BottomSalinity),
+         Bottom_CHLA = as.numeric(Bottom_CHLA))
+
+
+rowSums(taxa_table[,-1])
+```
+
+make some quick plots of correlations among variables 
+```{r}
+cor_matrix <- cor(meta_table[,c(5,6,13:18)], use = "pairwise.complete.obs")
+print(cor_matrix)
+
+library(ggcorrplot)
+ggcorrplot(cor_matrix, lab = TRUE)
+```
+
+
+set up the wide dataframes for multivariate analyses
+```{r}
+count_df_wide <- taxa_table 
+
+binary_df_wide <- taxa_table %>%
+   mutate(across(everything(), ~ ifelse(. > 0, 1, .)))
+```
+
+## test for differences in communities between lat/long/year using PERMANOVA 
+```{r}
+binary_dist <- vegdist(binary_df_wide[,-1], method = "jaccard")
+
+# Run PERMANOVA with latitude as the predictor
+binary_lat <- adonis2(binary_dist ~ meta_station$EQ.Latitude, permutations = 999)
+binary_lat
+binary_year <- adonis2(binary_dist ~ meta_station$SampleYear, permutations = 999)
+binary_year
+#binary_temp_surface <- adonis2(binary_dist ~ meta_station$SurfaceTemperature, permutations = 999)    ## there's some missing data so this doesn't work
+#binary_temp_surface
+#binary_temp_subsurface <- adonis2(binary_dist ~ meta_station$BottomTemperature, permutations = 999)
+#binary_temp_subsurface
+#binary_salinity_surface <- adonis2(binary_dist ~ meta_station$SurfaceSalinity, permutations = 999)
+#binary_salinity_surface
+#binary_salinity_subsurface <- adonis2(binary_dist ~ meta_station$BottomSalinity, permutations = 999)
+#binary_salinity_subsurface
+```
+
+
+## test for differences in communities between lat/long/year using PERMANOVA 
+```{r}
+count_dist <- vegdist(count_df_wide[,-1], method = "bray")
+
+# Run PERMANOVA with latitude as the predictor
+count_lat <- adonis2(count_dist ~ meta_station$EQ.Latitude, permutations = 999)
+count_lat
+count_year <- adonis2(count_dist ~ meta_station$SampleYear, permutations = 999)
+count_year
+#count_temp_surface <- adonis2(count_dist ~ meta_station$SurfaceTemperature, permutations = 999)    ## there's some missing data so this doesn't work
+#count_temp_surface
+#count_temp_subsurface <- adonis2(count_dist ~ meta_station$BottomTemperature, permutations = 999)
+#count_temp_subsurface
+#count_salinity_surface <- adonis2(count_dist ~ meta_station$SurfaceSalinity, permutations = 999)
+#count_salinity_surface
+#count_salinity_subsurface <- adonis2(count_dist ~ meta_station$BottomSalinity, permutations = 999)
+#count_salinity_subsurface
+```
+
+visualize with NMDS - binary data 
+```{r}
+binary_dist <- vegdist(binary_df_wide[,-1], method = "jaccard")
+binary_mds <- metaMDS(binary_dist)
+
+NMS_data <- binary_mds
+
+#create vectors with the NMS attributes
+NMS_coordinates<-vegan::scores(NMS_data,display="sites")
+NMS_axes<-as.data.frame(NMS_coordinates)
+NMS_scores<-vegan::scores(NMS_data,display="species")
+
+for_ploting<-as.data.frame(cbind(NMS_coordinates,meta_station))
+
+nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
+  geom_point(aes(NMDS1, NMDS2, colour = EQ.Latitude), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
+  coord_fixed()+
+  theme_classic()+ 
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
+  #labs(colour = "Latitude", shape = "Year", title = "by latitude") + # add legend labels for Station
+  theme(legend.position = "right", 
+        legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 12), 
+        axis.text = element_text(size = 10)) #+ # add legend at right of plot
+nmds.plot
+
+
+nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
+  geom_point(aes(NMDS1, NMDS2, colour = as.factor(SampleYear)), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
+  coord_fixed()+
+  theme_classic()+ 
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
+  #labs(colour = "Latitude", shape = "Year", title = "by latitude") + # add legend labels for Station
+  theme(legend.position = "right", 
+        legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 12), 
+        axis.text = element_text(size = 10)) #+ # add legend at right of plot
+nmds.plot
+```
+
+visualize with NMDS - count data 
+```{r}
+count_dist <- vegdist(count_df_wide[,-1], method = "bray")
+count_mds <- metaMDS(count_dist)
+
+NMS_data <- count_mds
+
+#create vectors with the NMS attributes
+NMS_coordinates<-vegan::scores(NMS_data,display="sites")
+NMS_axes<-as.data.frame(NMS_coordinates)
+NMS_scores<-vegan::scores(NMS_data,display="species")
+
+for_ploting<-as.data.frame(cbind(NMS_coordinates,meta_station))
+
+nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
+  geom_point(aes(NMDS1, NMDS2, colour = EQ.Latitude), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
+  coord_fixed()+
+  theme_classic()+ 
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
+  #labs(colour = "Latitude", shape = "Year", title = "by latitude") + # add legend labels for Station
+  theme(legend.position = "right", 
+        legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 12), 
+        axis.text = element_text(size = 10)) #+ # add legend at right of plot
+nmds.plot
+
+
+nmds.plot <- ggplot(for_ploting, aes(x=NMDS1, y=NMDS2))+ #sets up the plot
+  geom_point(aes(NMDS1, NMDS2, colour = as.factor(SampleYear)), size = 2)+ #adds site points to plot, shape determined by year, colour determined by location
+  coord_fixed()+
+  theme_classic()+ 
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"))+
+  #labs(colour = "Latitude", shape = "Year", title = "by latitude") + # add legend labels for Station
+  theme(legend.position = "right", 
+        legend.text = element_text(size = 12), 
+        legend.title = element_text(size = 12), 
+        axis.text = element_text(size = 10)) #+ # add legend at right of plot
+nmds.plot
+```
+
+
+let me try a distance-based redundancy analysis (dbRDA) - USING BINARY! 
+```{r}
+# Fit the dbRDA model - using capscale() - constrained analysis of principal coordinates
+
+rda_binary <- capscale(binary_df_wide[,-1] ~ 
+                        meta_station$EQ.Latitude + 
+                        as.factor(meta_station$SampleYear), # + 
+                         #meta_station$SurfaceTemperature + 
+                         #meta_station$BottomTemperature + 
+                         #meta_station$salinity_at_surface + 
+                         #meta_station$salinity_at_subsurface,
+                       distance = "jaccard")
+
+anova_terms <- anova(rda_binary, by = "terms", permutations = 999)
+anova_terms 
+
+summary(rda_binary)
+
+# Assuming capscale_model is already defined
+eigenvalues <- rda_binary$CA$eig
+total_inertia <- sum(eigenvalues)
+
+# Calculate proportion explained for CAP1 and CAP2
+proportion_variance <- eigenvalues / total_inertia * 100
+
+## First use the regular plot option to get a feel for the data
+#plot(rda_index, scaling = 2, choices = c(1,2))
+#plot(rda_index, scaling = 2, choices = c(1,3))
+
+# CAP1 = latitude, CAP2 = year, CAP3 = depth (CAP3 changes when adding in temp and salinity to the model)
+
+# Extract site and species scores
+site_scores <- as.data.frame(vegan::scores(rda_binary, display = "sites", choices = 1:3))
+#site_scores <- as.data.frame(rda_index$CCA$u[, 1:3])
+site_scores$Sample <- rownames(site_scores)  # Add sample names
+
+species_scores <- as.data.frame(vegan::scores(rda_binary, display = "species", choices = 1:3))
+#species_scores <- as.data.frame(rda_index$CCA$v[, 1:3])
+species_scores$Species <- rownames(species_scores)  # Add species names
+
+# Extract biplot arrows (for explanatory variables)
+biplot_arrows <- as.data.frame(vegan::scores(rda_binary, display = "bp", choices = 1:3))
+#biplot_arrows <- as.data.frame(rda_index$CCA$biplot[, 1:3])
+biplot_arrows$variable <- rownames(biplot_arrows)
+
+biplot_arrows <- biplot_arrows %>%
+  mutate(variable = ifelse(variable == "meta_station$EQ.Latitude", "latitude", variable),
+         variable = ifelse(variable == "as.factor(meta_station$SampleYear)2013", "2013", variable),
+         variable = ifelse(variable == "as.factor(meta_station$SampleYear)2017", "2017", variable),
+         variable = ifelse(variable == "as.factor(meta_station$SampleYear)2019", "2019", variable)) #,
+         #variable = ifelse(variable == "meta_station$temp_C_at_surface", "surface temp", variable),
+         #variable = ifelse(variable == "meta_station$temp_C_at_subsurface", "subsurface temp", variable),
+         #variable = ifelse(variable == "meta_station$salinity_at_surface", "surface salinity", variable),
+         #variable = ifelse(variable == "meta_station$salinity_at_subsurface", "subsurface salinity", variable))
+
+## Plot CAP1 vs CAP2 - color sites by latitude
+plot_lat <- ggplot() +
+  # Plot site scores
+  geom_point(data = site_scores, aes(x = CAP1, y = CAP2, color = meta_station$EQ.Latitude), size = 3) +
+  #geom_text_repel(data = site_scores, aes(x = CAP1, y = CAP2, label = Sample), size = 4) +
+  scale_color_viridis(option = "cividis",  direction = -1) +
+  
+  # Plot species scores
+  geom_point(data = species_scores, aes(x = CAP1, y = CAP2), color = "red", size = 2) +
+  geom_text_repel(data = species_scores, aes(x = CAP1, y = CAP2, label = Species), color = "red", size = 2) +
+  
+  # Plot arrows
+  geom_segment(data = biplot_arrows, aes(x = 0, y = 0, xend = CAP1, yend = CAP2), 
+               arrow = arrow(length = unit(0.3, "cm")), color = "black") + # Plot biplot arrows
+  geom_text(data = biplot_arrows, aes(x = CAP1 * 1.1, y = CAP2 * 1.1, label = variable), color = "black") + # Label arrows
+  
+  # Add labels and theme
+  labs(title = "CAP Plot", 
+       x = paste("CAP1 (", round(proportion_variance[1], 2), "% variance explained)", sep = ""), 
+       y = paste("CAP2 (", round(proportion_variance[2], 2), "% variance explained)", sep = ""),
+       color = "latitude") +
+  theme_minimal() #+
+  #theme(legend.position = "none")
+
+plot_lat
+
+## Plot CAP1 vs CAP2 - color sites by year
+plot_year <- ggplot() +
+  # Plot site scores
+  geom_point(data = site_scores, aes(x = CAP1, y = CAP2, color = as.factor(meta_station$SampleYear)), size = 3) +
+  #geom_text_repel(data = site_scores, aes(x = CAP1, y = CAP2, label = Sample), size = 4) +
+  
+  # Plot species scores
+  geom_point(data = species_scores, aes(x = CAP1, y = CAP2), color = "black", size = 2) +
+  geom_text_repel(data = species_scores, aes(x = CAP1, y = CAP2, label = Species), color = "black", size = 2) +
+  
+  # Plot arrows
+  geom_segment(data = biplot_arrows, aes(x = 0, y = 0, xend = CAP1, yend = CAP2), 
+               arrow = arrow(length = unit(0.3, "cm")), color = "black") + # Plot biplot arrows
+  geom_text(data = biplot_arrows, aes(x = CAP1 * 1.1, y = CAP2 * 1.1, label = variable), color = "black") + # Label arrows
+  
+  # Add labels and theme
+  labs(title = "CAP Plot", 
+       x = paste("CAP1 (", round(proportion_variance[1], 2), "% variance explained)", sep = ""), 
+       y = paste("CAP2 (", round(proportion_variance[2], 2), "% variance explained)", sep = ""),  
+       color = "year") +
+  theme_minimal() #+
+  #theme(legend.position = "none")
+
+plot_year
+
+## Plot CAP1 vs CAP3 - color sites by temp
+plot_temp <- ggplot() +
+  # Plot site scores
+  geom_point(data = site_scores, aes(x = CAP1, y = CAP3, color = meta_station$temp_C_at_subsurface), size = 3) +
+  #geom_text_repel(data = site_scores, aes(x = CAP1, y = CAP3, label = Sample), size = 4) +
+  scale_colour_viridis(option = "C", direction = -1) + 
+  
+  # Plot species scores
+  geom_point(data = species_scores, aes(x = CAP1, y = CAP3), color = "black", size = 2) +
+  geom_text_repel(data = species_scores, aes(x = CAP1, y = CAP3, label = Species), color = "black", size = 2) +
+  
+  # Plot arrows
+  geom_segment(data = biplot_arrows, aes(x = 0, y = 0, xend = CAP1, yend = CAP3), 
+               arrow = arrow(length = unit(0.3, "cm")), color = "black") + # Plot biplot arrows
+  geom_text(data = biplot_arrows, aes(x = CAP1 * 1.1, y = CAP3 * 1.1, label = variable), color = "black") + # Label arrows
+  
+  # Add labels and theme
+  labs(title = "CAP Plot", 
+       x = paste("CAP1 (", round(proportion_variance[1], 2), "% variance explained)", sep = ""), 
+       y = paste("CAP3 (", round(proportion_variance[3], 2), "% variance explained)", sep = ""), 
+       color = "subsurface temperature") +
+  theme_minimal() #+
+  #theme(legend.position = "none")
+
+plot_temp
+```
+
+
+
+
+
+
+
+
+
+### stopped updated code here
+
+
 
 okay, for multivariate analyses i can't have any empty rows (stations with no fish) so i'll need to remove those 
 ```{r}

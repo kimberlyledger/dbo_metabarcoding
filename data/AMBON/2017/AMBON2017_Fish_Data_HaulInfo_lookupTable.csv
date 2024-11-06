@@ -1,0 +1,132 @@
+,Cruise,Local Date,Station,Gear,Haul,Start Time (UTC),Start Lat,Start Long,End Time (UTC),End Lat,End Long,Station Depth,Quantitative,Q=1 NQ=0,Volume,Fish Split,Invert Split,Wire Out,Trawl Notes,Catch Notes
+0,AMBON 2017,6-Aug-17,DBO3-8,IKMT,1,19:06:11,67.66691,-168.9589,19:16:18,67.67638,-168.9498,48.0,Q,1,1 qt,100,0,80 m,,"lots of comb jellies, euphausiids"
+1,AMBON 2017,6-Aug-17,DBO3-8,PSBTA,1,19:58:04,67.66369,-168.9591,20:01:03,67.66518,-168.9573,48.0,NQ,0,1 gal,100,0,100 m ,Roller gear and weights were muddy but catch small,Lots of pelagic jellies and fish
+2,AMBON 2017,6-Aug-17,DBO3-8,PSBTA,2,20:16:50,67.66753,-168.9543,20:19:37,67.66872,-168.953,48.2,Q,1,5 gal,100,100,130 m,Retow at DBO 3-8,"Clean catch, lots of jellies and one very big walleye pollock!"
+3,AMBON 2017,6-Aug-17,DBO3-7,PSBTA,3,23:39:06,67.77881,-168.6035,23:42:05,67.78023,-168.6037,48.0,Q,1,5 gal,100,100,135 m,"3 min tow, very clean",Lots of snow crab and stichaeids
+4,AMBON 2017,7-Aug-17,DBO3-6,PSBTA,4,3:03:11,67.89535,-168.2331,3:07:17,67.89691,-168.237,55.0,Q,1,10 gal,100,50,145 m,"4 min tow, very clean",lots of large brittle stars and some snow crabs
+5,AMBON 2017,7-Aug-17,DBO3-5,PSBTA,5,5:54:20,68.01134,-167.8686,5:58:33,68.0128,-167.8643,53.0,NQ,0,1 qt,100,0,155 m ,"4 min tow, not solid bottom contact","some anenomes, sand dollars, crabs "
+6,AMBON 2017,7-Aug-17,DBO3-5,PSBTA,6,6:22:13,68.01122,-167.8692,6:26:33,68.01257,-167.8647,53.0,Q,1,2 gal,100,100,165 m,"Retow of DBO3-5 PSBTA Haul 5, Bottom contact, 4 min tow","Basket stars, crabs, sand dollars "
+7,AMBON 2017,7-Aug-17,DBO3-4,PSBTA,7,9:39:53,68.12587,-167.4993,9:43:12,68.12733,-167.5021,51.0,Q,1,1 gal ,100,100,150,"3 min tow, confirmed with Katrin that Q was ok","clean catch, eualus, basket stars, tunicates "
+8,AMBON 2017,7-Aug-17,DBO3-3,PSBTA,8,11:35:18,68.18622,-167.3067,11:38:18,68.18748,-167.3096,48.0,NQ,0,2 qt,100,0,155,"3 min tow, retwoing for 5 min w/5 m more wire","clean catch, very small"
+9,AMBON 2017,7-Aug-17,DBO3-3,PSBTA,9,12:01:37,68.18666,-167.307,12:06:28,68.18897,-167.3115,48.0,Q,1,2 gal,100,100,160,5 min tow,"clean catch, brittle stars, tunicates, eualus and crab"
+10,AMBON 2017,7-Aug-17,DBO3-2,IKMT,2,14:56:32,68.23746,-167.1259,15:08:46,68.2507,-167.1259,44.0,Q,1,3 cups,100,0,100,,"Jellies, crab larvae, larval cods"
+11,AMBON 2017,7-Aug-17,DBO3-2,PSBTA,10,16:01:50,68.24227,-167.1246,16:07:12,68.24532,-167.1265,44.0,Q,1,3 gal,100,100,150,"5 min tow, trawl may have kited for ~30 sec according to SIMRAD","Clean haul, lots of jelly (had to rinse the net) eualus, basket stars, tunicates"
+12,AMBON 2017,7-Aug-17,DBO3-1,PSBTA,11,17:53:32,68.29786,-166.9272,17:58:38,68.29887,-166.9344,35.0,Q,1,,100,100,115,,"clean catch, lots of eualus, crabs, basket stars and coral on the beam"
+13,AMBON 2017,8-Aug-17,CL3,PSBTA,12,3:11:34,69.03391,-168.8929,3:16:42,69.03131,-168.8917,53.0,NQ,0,0.5 gal,100,0,175 m,"not firm bottom contact, towed for 5 min, will retow","crabs, some bivalves"
+14,AMBON 2017,8-Aug-17,CL3,PSBTA,13,3:33:59,69.03136,-168.8919,3:39:02,69.03395,-168.8929,53.0,NQ,0,1 gal,100,100,185,"still iffy looking, SIMRAD looked like it was on bottom, perhaps swell is messing with it, no time to retow","jellies, crabs and bivalves"
+15,AMBON 2017,8-Aug-17,CL3,IKMT,3,3:54:32,69.03847,-168.8967,4:06:16,69.03069,-168.8879,53.0,Q,1,1 qt,100,0,110,,Lots of jellies
+16,AMBON 2017,8-Aug-17,CL2,PSBTA,14,8:44:49,69.02989,-167.9316,8:50:07,69.03194,-167.926,51.0,Q,1,1 gal ,100,100,180 m,"5 min tow, added 16lbs weight to trawl, seemed to improve bottom contact and fishing ","clean catch, chionocetes, hermits, molluscs"
+17,AMBON 2017,8-Aug-17,CL1,PSBTA,15,13:53:06,68.94826,-166.9074,13:58:24,68.94833,-166.899,47.0,Q,1,1.5 gal,100,100,170 m,added additional 16 lbs to net,"beautiful haul, lots of hermits, chionecetes, molluscs, no jellies, 5 min tow"
+18,AMBON 2017,8-Aug-17,CL0,IKMT,4,16:35:08,68.89265,-166.4302,16:46:38,68.90373,-166.419,32.0,Q,1,3 cups,100,0,100,,"at least 4 kinds of jellies, crab larvae, Heidi collected one jelly"
+19,AMBON 2017,8-Aug-17,CL0,PSBTA,16,17:21:48,68.89642,-166.4274,17:26:38,68.89861,-166.4231,32.0,NQ,0,,100,0,135 m,"started w/ 125 m of wired, added 10m at 2 min of towing, poor bottom contact, swell and weather, retowed",lots of eualus and fish
+20,AMBON 2017,8-Aug-17,CL0,PSBTA,17,17:44:06,68.90399,-166.4236,17:49:19,68.90247,-166.4321,32.0,Q,1,4 gal,100,1/3 for everything and 1/12 for shrimps,170 m,"Retow of haul 16, set out 170m wire, towed 5 min, still lots of eualus and fish, bottome is rockey and gear showed bottom contact",shit-ton of shrimps
+21,AMBON 2017,9-Aug-17,ML6-1,IKMT,5,10:14:06,70.08725,-163.9732,10:31:34,70.08546,-163.9236,33.0,Q,1,1 gal,100,0,150m,,"several large jellies, cod, sculpin"
+22,AMBON 2017,9-Aug-17,ML6-1,PSBTA,18,11:08:57,70.08752,-163.9433,11:13:18,70.08765,-163.9497,33.0,Q,1,2 gal ,100,100,190m,"some swell, but enough wire that bottom contact was still ok ",Sand dollars! And shrimps 
+23,AMBON 2017,9-Aug-17,ML6-2,IKMT,6,14:23:39,70.26382,-163.4183,14:40:21,70.27354,-163.3814,32.0,Q,1,1 gal,100,0,140,,"lots of jelly, sample sloshed but collected off the table"
+24,AMBON 2017,9-Aug-17,ML6-2,PSBTA,19,15:17:25,70.27106,-163.3929,15:22:05,70.26953,-163.3988,32.0,NQ,0,1 gal,100,0,190 m,"Non-quan, will retow, poor bottom contact, small bag",shrimps and a few sand dollars
+25,AMBON 2017,9-Aug-17,ML6-2,PSBTA,20,15:48:13,70.27122,-163.3925,15:53:31,70.26941,-163.3991,32.0,NQ,0,0.5 gal,100,100,220 m ,"retow of haul 19, still very small bag, bottom contact on SIMRAD poor and choppy",
+26,AMBON 2017,9-Aug-17,ML6-3,PSBTA,21,19:11:10,70.38787,-163.0164,19:16:27,70.3895,-163.023,33.0,Q,1,,100,100,200,Good bottom contact,"sand dollars (lots), shrimp"
+27,AMBON 2017,9-Aug-17,ML6-4,IKMT,7,21:41:07,70.50948,-162.6317,21:56:07,70.51109,-162.6723,36.0,Q,1,8 cups,100,0,135 m ,"good, lots of jellies (gross amount, all stuck in the net), larval cod",
+28,AMBON 2017,9-Aug-17,ML6-4,PSBTA,22,22:26:00,70.50845,-162.6447,22:31:02,70.50887,-162.6518,36.0,NQ,0,1 gal,100,0,200,"Not firm bottom contact, will retow, 5 min tow","crabs, ascidians and sand dollars"
+29,AMBON 2017,9-Aug-17,ML6-4,PSBTA,23,22:52:29,70.51038,-162.6534,22:57:35,70.50966,-162.6457,37.0,Q,1,7 gal,100,100,210,"much better, 5 min tow, ","sand dollars, crabs and SCULPINS"
+30,AMBON 2017,10-Aug-17,ML6-5,PSBTA,24,1:41:42,70.62637,-162.2439,1:46:45,70.62754,-162.2504,40.0,Q,1,2 gal,100,100,220 m ,,"Lots of shrimps, some basket stars, bryozoans and SCULPINS"
+31,AMBON 2017,10-Aug-17,ML6-6,PSBTA,25,4:27:34,70.72591,-161.9336,4:33:26,70.72578,-161.9424,42.0,Q,1,5 gal,100,100,240,good tow,"lots of shrimps, basket stars, LOTS OF SCULPINS"
+32,AMBON 2017,10-Aug-17,ML6-7,PSBTA,26,8:19:28,70.84544,-161.5296,8:24:36,70.84625,-161.5358,42.0,Q,1,6 gal,100,100 except shrimps at 1/6,250 m ,good tow ,"sponges, shrimps, crabs "
+33,AMBON 2017,10-Aug-17,ML6-8,PSBTA,27,11:25:05,70.9592,-161.1382,11:32:26,70.95831,-161.1482,45.0,NQ,0,4 gal,100,100,290,"poor bottom contact, started with 250 m, added 20m, then another 20, 6 min tow. Due to weather, no time to reset",mostly eualus 
+34,AMBON 2017,10-Aug-17,ML6-9,PSBTA,28,15:42:38,71.07922,-160.7076,15:48:05,71.07662,-160.7089,56.0,Q,1,6 gallons ,100,"50, except shrimp at 1/8",290m,"5min tow, 16lbs chain lashed to roller gear due to high seas","Good trawl, echinoderms, crabs, amphipods "
+35,AMBON 2017,11-Aug-17,ML6-10,PSBTA,29,21:19:48,71.19365,-160.2695,21:26:54,71.19016,-160.2737,55.0,Q,1,25 gallons,100,***Need to confirm***,290m,"probably too much wire, forgot about the extra weight","Brittle stars, little fish "
+36,AMBON 2017,12-Aug-17,ML6-11,IKMT,9,1:37:05,71.36333,-159.6915,1:48:34,71.35329,-159.7064,51.0,Q,1,2 cups,100,0,110m ,,"jelllies, themisto "
+37,AMBON 2017,12-Aug-17,ML6-11,PSBTA,30,2:15:49,71.36115,-159.6922,2:20:52,71.35858,-159.6925,51.0,Q,1,Big Bag,100,***Need to confirm***,175m ,The extra weight might be digging the bag in,Lots of disc bryozoan and brittle stars 
+38,AMBON 2017,12-Aug-17,ML4-3,PSBTA,31,6:28:44,71.06024,-159.8826,6:31:37,71.06169,-159.8821,57.0,NQ,0,0,0,0,120m,"Took extra weight off roller gear, then SIMRAD stopped working so tried 2:1 scope, too shallow, nothing in net ",Nothing in net 
+39,AMBON 2017,12-Aug-17,ML4-3,PSBTA,32,6:46:22,71.06425,-159.8821,6:51:31,71.06236,-159.8883,57.0,NQ,0,2 cups ,100,100,150m ,"Sent out 3:1 wire scope, was too shallow but did touch bottom","some shrimps, 1 urchin, some fish "
+40,AMBON 2017,12-Aug-17,ML4-2,PSBTA,33,9:46:44,70.9312,-159.4982,9:51:19,70.93218,-159.5042,46.0,Q,1,5 gal ,100,100,180m ,"Good haul, rocky bottom, added weights to roller gear, 5 min tow","several large sponges, jellies, shrimps "
+41,AMBON 2017,12-Aug-17,ML4-1,IKMT,10,11:29:27,70.8969,-159.3815,11:40:40,70.88819,-159.4029,29.0,Q,1,2 cups,100,0,100m,,"Several large fish, a few jellies "
+42,AMBON 2017,12-Aug-17,ML4-1,PSBTA,34,12:12:20,70.88811,-159.4053,12:17:18,70.88985,-159.401,29.0,Q,1,3 gal ,100,100,115m,Good haul ,"two large sea stars, urchins, brown shrimps. Had to subsample Myox. Scorpius: measured all of the large size class, measured 1/6 of small size class, counted and weighed remainder"
+43,AMBON 2017,12-Aug-17,ML4-5,PSBTA,35,19:14:17,71.32162,-160.6691,19:19:17,71.32253,-160.664,49.0,NQ,0,1 cup,100,0,150 m,"not on bottom, very small tow",
+44,AMBON 2017,12-Aug-17,ML4-5,PSBTA,36,19:38:14,71.32211,-160.666,19:42:20,71.32294,-160.6604,49.0,Q,1,2 gal,100,100,175 m,"4 min tow, no chain weight",lots of brittle stars
+45,AMBON 2017,12-Aug-17,ML4-6,IKMT,11,22:49:26,71.45761,-161.0305,23:00:38,71.44903,-161.0532,47.0,Q,1,1 cup,100,0,100 m ,,themisto and cods
+46,AMBON 2017,12-Aug-17,ML4-6,PSBTA,37,23:30:47,71.45673,-161.0355,23:34:02,71.45533,-161.0383,47.0,Q,1,3 gal,100,100,170 m,"bottom contact, small but clean!","brittle stars, lots of booger cucumbers"
+47,AMBON 2017,13-Aug-17,ML4-7,PSBTA,38,2:32:19,71.59014,-161.3985,2:35:43,71.58909,-161.4032,47.0,Q,1,5 gal,100,"1/3, except snow crab and leptasterias which were 100",175m ,"good haul, clean","lots of brittle stars, cucumbers and more fish"
+48,AMBON 2017,13-Aug-17,ML4-8,IKMT,12,5:11:43,71.71554,-161.787,5:22:33,71.7188,-161.7753,45.0,Q,1,1 cup,100,0,100 m ,,"jellies, euphausiids and cods"
+49,AMBON 2017,13-Aug-17,ML4-8,PSBTA,39,5:48:29,71.72346,-161.7722,5:51:24,71.72205,-161.7743,45.0,Q,1,2 gal,100,100,170 m,"Good haul, some rocks","brittle stars, crabs, no more booger cucumbers"
+50,AMBON 2017,13-Aug-17,ML4-9,PSBTA,40,9:53:19,71.84995,-162.1666,9:56:28,71.85047,-162.1623,43.0,Q,1,5 gal ,100,50,160m,"4 min tow, good contact","brittle stars, shell hash, no mud "
+51,AMBON 2017,13-Aug-17,ML4-10,PSBTA,41,12:37:44,71.97962,-162.5355,12:40:50,71.97991,-162.5355,33.0,NQ,0,2 cup,100,100,115m,"not on bottom, retow",shrimps and amphipods
+52,AMBON 2017,13-Aug-17,ML4-10,PSBTA,42,12:56:27,71.98028,-162.5387,13:01:05,71.9812,-162.5342,33.0,NQ,0,,100,0,180 m,"still a really small bag, not confident in bottom contact",shrimps and amphipods
+53,AMBON 2017,13-Aug-17,ML4-11,IKMT,13,15:43:20,72.11219,-162.916,15:58:16,72.09957,-162.9444,40.0,Q,1,2 cups,100,0,130m,good,"jellies, gadids"
+54,AMBON 2017,13-Aug-17,ML4-11,PSBTA,43,16:44:19,72.1112,-162.9193,16:47:34,72.11462,-162.9096,40.0,Q,1,25 gallons,100,1/6,165m,"weight back on roller gear, 4 min tow, mud bag, rinsed","lots of shell hash, rocks, very few fish"
+55,AMBON 2017,13-Aug-17,ML4-12,PSBTA,44,20:00:30,72.23788,-163.3204,20:03:43,72.23865,-163.3158,41.0,Q,1,4 gal,100,100,165 m,"clean catch, took weight off","brittle stars, crabs and shrimps"
+56,AMBON 2017,13-Aug-17,ML4-13,PSBTA,45,23:02:46,72.36371,-163.7264,23:05:44,72.36448,-163.7222,45.0,Q,1,5 gal,100,1/3,170m ,"good, clean","brittle stars, crabs, lots of worms"
+57,AMBON 2017,14-Aug-17,ML4-14,IKMT,14,1:54:01,72.49632,-164.1234,2:06:44,72.4967,-164.0809,50.0,Q,1,2 cups,100,0,115m,,"gadids, pterapods"
+58,AMBON 2017,14-Aug-17,ML4-14,PSBTA,46,2:35:23,72.49645,-164.1076,2:38:20,72.49645,-164.1025,50.0,Q,1,10 gal,100,1/6,180m ,"muddy, had to rinse but was mostly brittle stars",
+59,AMBON 2017,14-Aug-17,ML5-10,PSBTA,47,23:15:39,71.60364,-162.1992,23:18:39,71.60305,-162.2035,45.0,Q,1,4 gal,100,100,"170m for first 2 min, 165 for last min",a little muddy,"brittle stars, amphipods and hermit crabs"
+60,AMBON 2017,15-Aug-17,ML5-9,IKMT,15,2:11:35,71.48731,-162.6274,2:23:57,71.46145,-162.5947,45.0,Q,1,3 cups,100,0,115m,"jellies, lots of cod",
+61,AMBON 2017,15-Aug-17,ML5-9,PSBTA,48,2:47:26,71.48228,-162.5999,2:50:29,71.48336,-162.6023,45.0,Q,1,10 gal,100,1/4,"170 for first 2 min, 165 for last 30 sec","Should do 165 m when no swell at this depth, a little muddy but okay",brittle stars and lots of stichaeids
+62,AMBON 2017,15-Aug-17,ML3-14,IKMT,16,12:51:05,72.11716,-165.3765,13:06:13,72.12405,-165.3315,46.0,Q,1,3 cups,100,0,140m,,"jellies, ostracods, crab larvae"
+63,AMBON 2017,15-Aug-17,ML3-14,PSBTA,49,13:45:48,72.12006,-165.3565,13:49:46,72.11936,-165.3624,46.0,NQ,0,1 gal,100,0,185m ,"swell, poor bottom contact, retow ",clean catch 
+64,AMBON 2017,15-Aug-17,ML3-14,PSBTA,50,14:14:13,72.11993,-165.3583,14:19:25,72.11887,-165.3657,46.0,Q,1,1 gal ,100,100,210m,"SIMRAD looked good but poor bottom contact, very small haul","clean catch, good amount of fish, small chionocetes, shrimp"
+65,AMBON 2017,15-Aug-17,ML3-13,PSBTA,51,17:27:56,71.99369,-164.9514,17:32:26,71.99331,-164.9585,42.0,Q,1,5 gal,100,100,160m,clean catch ,"basket stars, crabs "
+66,AMBON 2017,15-Aug-17,ML3-12,PSBTA,52,20:18:56,71.86954,-164.5581,20:21:31,71.87009,-164.554,41.0,Q,1,5 gal,100,100,160m,,"brittle stars, gastropods and snow crabs"
+67,AMBON 2017,15-Aug-17,ML3-11,IKMT,17,22:48:40,71.74251,-164.1323,23:01:03,71.74419,-164.1687,40.0,Q,1,1 cup,100,0,115m,,"lots of crab larvae, hermies! And lots of gadids"
+68,AMBON 2017,15-Aug-17,ML3-11,PSBTA,53,23:39:33,71.74411,-164.1518,23:40:32,71.74422,-164.1532,40.0,Q,1,4 gal,100,100,157 m,,"lots of shrimps, crabs and sea stars"
+69,AMBON 2017,16-Aug-17,ML3-10,PSBTA,54,2:24:01,71.6172,-163.7735,2:26:47,71.61716,-163.769,43.0,Q,1,20 gal,100,1/12,165m,Super muddy,"crabs, brittle stars, gersemia"
+70,AMBON 2017,16-Aug-17,ML3-9,PSBTA,55,5:19:00,71.49193,-163.4044,5:21:06,71.49194,-163.4011,44.0,Q,1,15 gal,100,1/4,155m,"Muddy, less wire and less time, but still muddy",
+71,AMBON 2017,16-Aug-17,ML3-8,IKMT,18,7:49:25,71.36234,-163.0126,8:00:28,71.36264,-163.0436,47.0,Q,1,1 qt,100,0,115m,,"jellies, amphipids, crab larvae"
+72,AMBON 2017,16-Aug-17,ML3-8,PSBTA,56,8:46:34,71.36307,-162.9871,8:48:55,71.36317,-162.9907,47.0,NQ,0,1 gal ,100,0,155,"No weights, bottom contact by not firm, very small, will retow",Lots of shrimps 
+73,AMBON 2017,16-Aug-17,ML3-8,PSBTA,57,9:05:54,71.36214,-162.9937,9:11:03,71.36237,-163.0016,47.0,Q,1,3 gal,100,100,165m,"5 min tow, clean catch","brittle stars, shrimps, pycnogonids"
+74,AMBON 2017,16-Aug-17,ML3-7,PSBTA,58,12:09:56,71.2394,-162.6381,12:14:18,71.23826,-162.6322,47.0,Q,1,8 gal,100,50,170m,"5 min tow, no weights, clean ","lots of brittle stars, basket stars, octopus"
+75,AMBON 2017,16-Aug-17,ML3-6,IKMT,19,15:06:49,71.10081,-162.2623,15:22:28,71.11293,-162.2323,47.0,Q,1,,100,0,140m,,"jellies, amphipods and a few crab larvae"
+76,AMBON 2017,16-Aug-17,ML3-6,PSBTA,59,15:51:30,71.10745,-162.244,15:56:48,71.10553,-162.2494,47.0,NQ,0,1 gal,100,0,175m ,"no chain, 5 min tow, very small catch",shrimps and a few fish
+77,AMBON 2017,16-Aug-17,ML3-6,PSBTA,60,16:16:57,71.10036,-162.2642,16:20:51,71.09895,-162.2681,47.0,Q,1,10 gal,100,1/9,170m,added wire and chain,"mud bag, brittle star city"
+78,AMBON 2017,16-Aug-17,ML3-5,PSBTA,61,19:20:44,70.97413,-161.8982,19:25:36,70.97189,-161.901,47.0,NQ,0,1 gal,100,0,180m ,"4.5 min, no weight","small haul, shrimps, basket stars"
+79,AMBON 2017,16-Aug-17,ML3-5,PSBTA,62,19:43:26,70.96864,-161.9207,19:48:38,70.96864,-161.9207,47.0,Q,1,3 gal,100,100,205 m,"5 min tow, no weight, still very small","basket stars on roller gear, shrimps"
+80,AMBON 2017,17-Aug-17,ML3-3,PSBTA,63,1:51:10,70.71503,-161.1857,1:53:47,70.71507,-161.1815,44.0,Q,1,4 gal,100,100,150m,,"Gravelly bottom, lots of shrimps, but urchins, anenomes and psolas "
+81,AMBON 2017,17-Aug-17,ML3-2,PSBTA,64,4:30:23,70.57822,-160.8149,4:33:09,70.57816,-160.819,29.0,NQ,0,4 gal,100,0,115,,
+82,AMBON 2017,17-Aug-17,ML3-2,PSBTA,65,4:56:21,70.57871,-160.8167,4:59:28,70.5784,-160.8214,29.0,Q,1,4 gal ,100,100,115,more weight,
+83,AMBON 2017,17-Aug-17,ML3-1,IKMT,20,6:49:38,70.49549,-160.636,6:52:06,70.49606,-160.6286,19.0,Q,1,1 tbs,100,0,20,,"1 tiny jelly, no fish "
+84,AMBON 2017,17-Aug-17,ML3-1,PSBTA,66,7:01:23,70.49629,-160.6135,7:04:20,70.49633,-160.6177,19.0,Q,1,4 gal,100,100,75m,"large boulder, sea stars, shrimps, lots of fish ",
+85,AMBON 2017,17-Aug-17,ML1-1,IKMT,21,15:54:43,70.03401,-162.7751,15:57:20,70.03541,-162.7674,16.0,Q,1,1/2 cup,100,0,20m,,2 fish and a jelly
+86,AMBON 2017,17-Aug-17,ML1-1,PSBTA,67,16:08:19,70.03848,-162.756,16:11:16,70.03765,-162.7594,16.0,Q,1,3 gal,100,100,65,"chain weight, 3 min tow","rocks, crabs, cool fish!"
+87,AMBON 2017,17-Aug-17,ML1-2,PSBTA,68,18:46:17,70.14433,-163.0454,18:50:17,70.14259,-163.0481,23.0,Q,1,30 gal,100,100,"100m, then 105 at 2 min","weights on, 4 min haul","sea star city, clean catch"
+88,AMBON 2017,17-Aug-17,ML1-4,PSBTA,69,23:40:39,70.39581,-163.7598,23:43:11,70.39703,-163.7615,37.0,Q,1,16 gal,100,1/4,140m,weights on,lots of sand dollars
+89,AMBON 2017,18-Aug-17,ML1-5,PSBTA,70,2:40:18,70.52509,-164.1143,2:43:06,70.5251,-164.1182,45.0,NQ,0,3 gal ,100,0,155m,"no weights, bottom contact not firm, will add weight and retow",shrimps and basket stars 
+90,AMBON 2017,18-Aug-17,ML1-5,PSBTA,71,3:02:03,70.5266,-164.1335,3:05:35,70.52573,-164.1285,45.0,Q,1,5 gal,100,100,160m,added shackles,Sea stars and peaches 
+91,AMBON 2017,18-Aug-17,ML1-6,IKMT,22,5:44:32,70.64734,-164.5215,5:55:46,70.64642,-164.4869,47.0,Q,1,2 cups,100,0,115 m wire,,jellies and lots of cod
+92,AMBON 2017,18-Aug-17,ML1-6,PSBTA,72,6:36:20,70.64693,-164.4974,6:39:16,70.64679,-164.5018,47.0,Q,1,6 gal,100,100,165 m,good haul,"sea peaches, basket stars"
+93,AMBON 2017,18-Aug-17,ML1-7,PSBTA,73,9:42:12,70.77319,-164.879,9:46:16,70.77213,-164.8845,41.0,NQ,0,1 gal,100,0,160m,small catch,"shrimps, all fish discarded after being counted and weighed"
+94,AMBON 2017,18-Aug-17,ML1-7,PSBTA,74,10:06:19,70.77201,-164.8783,10:11:20,70.77404,-164.8742,41.0,Q,1,3 gal,100,100,170m,"lots of fish, hermits and small brittle stars",
+95,AMBON 2017,18-Aug-17,ML1-8,IKMT,23,12:36:24,70.90086,-165.2448,12:55:40,70.88487,-165.278,42.0,Q,1,1 qt,100,0,140m,,"lots of cod, one jelly"
+96,AMBON 2017,18-Aug-17,ML1-8,PSBTA,75,13:22:56,70.89518,-165.2568,13:28:05,70.89742,-165.2534,42.0,Q,1,15 gal,100,1/4,170 m,"5 min tow, a little muddy","sea stars, crabs and a whale bone?"
+97,AMBON 2017,18-Aug-17,ML1-9,PSBTA,76,16:50:27,71.01878,-165.6478,16:53:18,71.01955,-165.644,43.0,Q,1,4 gal,100,100,160m,"shackles on, 3 min tow, good tow","small bivalves, crabs"
+98,AMBON 2017,18-Aug-17,ML1-10,IKMT,24,20:03:27,71.14761,-166.0162,20:18:16,71.13578,-166.0468,44.0,Q,1,1 cup,100,0,140m,,crab larvae and lots of cod
+99,AMBON 2017,18-Aug-17,ML1-10,PSBTA,77,20:42:52,71.14438,-166.0221,20:45:36,71.14388,-166.0257,44.0,Q,1,3 gal,100,100,160m,"clean, small haul, only 2.5 min trawl cause kelly was scared of mud","lots of hermit crabs, some shell hash"
+100,AMBON 2017,18-Aug-17,ML1-11,PSBTA,78,23:41:15,71.26576,-166.4243,23:45:35,71.26502,-166.4304,45.0,Q,1,4 gal,100,100,160m ,"clean, lots of snow crab",
+101,AMBON 2017,19-Aug-17,ML1-12,PSBTA,79,2:25:49,71.38893,-166.8113,2:29:06,71.38799,-166.8153,47.0,Q,1,5 gal,100,100,165m,"clean, lots of snow crab",
+102,AMBON 2017,19-Aug-17,ML1-13,IKMT,25,5:10:45,71.5069,-167.2043,5:28:12,71.50817,-167.2582,49.0,Q,1,4 cups,100,0,150m,"lots of jellies, crab larvae and cod",
+103,AMBON 2017,19-Aug-17,ML1-13,PSBTA,80,6:07:48,71.50694,-167.2117,6:10:51,71.50764,-167.2161,49.0,Q,1,6 gal,100,100,170m,"clean haul, brittle stars and crabs",
+104,AMBON 2017,19-Aug-17,ML5-7,PSBTA,81,16:46:19,71.24122,-163.4064,16:51:03,71.24099,-163.3989,45.0,Q,1,20 gal,100,1/3 except brittle stars at 1/18,165m,,"lots of brittle stars, basket stars, shrimps, snails"
+105,AMBON 2017,19-Aug-17,ML5-6,PSBTA,82,19:37:36,71.11892,-163.8058,19:39:46,71.118,-163.8039,44.0,Q,1,4 gal,100,100,160m,"start time for event logger not quite right, missed the initial all stop in the radio",brittle stars and shirmps
+106,AMBON 2017,19-Aug-17,ML5-5,IKMT,26,22:23:37,71.13866,-164.4844,22:55:56,71.15372,-164.4868,43.0,Q,1,1 qt,100,0,130m,"Jellies, cod and crab larvae",
+107,AMBON 2017,19-Aug-17,ML5-5,PSBTA,83,23:20:12,71.14906,-164.4845,23:22:55,71.14767,-164.4846,43.0,Q,1,7 gal,100,50,160m,,brittle stars and clean haul
+108,AMBON 2017,20-Aug-17,ML5-4,IKMT,27,1:50:39,71.02486,-164.8954,2:05:00,71.01955,-164.8549,36.0,Q,1,1 qt,100,0,130m,lots of ctenophores and cod,
+109,AMBON 2017,20-Aug-17,ML5-4,PSBTA,85,2:43:43,71.02116,-164.8695,2:47:43,71.02201,-164.8738,36.0,NQ,0,4 gal,100,0,145m,"still only shrimps even with added weight and wire, will try on more time","all fish counted, weighed and discarded"
+110,AMBON 2017,20-Aug-17,ML5-4,PSBTA,84,2:52:15,71.02408,-164.8834,2:55:23,71.02321,-164.8795,36.0,NQ,0,4 gal,100,0,140m,"gravelly bottom, just got shrimps and fish, added more shackles and will retow","all fish counted, weighed and discarded"
+111,AMBON 2017,20-Aug-17,ML5-4,PSBTA,86,3:14:18,71.02168,-164.8769,3:17:24,71.02294,-164.874,36.0,NQ,0,4 gal,100,100,150m,"shrimps again, 1 psolus, probably still just bouncing, will move on , fish catch same across all three hauls",
+112,AMBON 2017,20-Aug-17,ML5-2,PSBTA,87,7:35:54,70.77388,-165.6223,7:39:05,70.77263,-165.6248,42.0,Q,1,3 gal,100,100,160m,"small, clean ","big jelly, crabs, and gersenia "
+113,AMBON 2017,20-Aug-17,ML5-1,IKMT,28,10:15:20,70.6431,-165.9957,10:27:58,70.65607,-165.9949,42.0,Q,1,1 gal,100,0,130m ,,1 large Boob Implant Jelly BIJ (Aquareous victorius) 
+114,AMBON 2017,20-Aug-17,ML5-1,PSBTA,88,11:00:32,70.64902,-165.995,11:04:46,70.6469,-165.9949,42.0,Q,1,3 gal,100,100,160m,"small haul, clean","shrimps, crabs, lots of fish "
+115,AMBON 2017,20-Aug-17,BBL-1,IKMT,29,23:07:58,69.34155,-163.523,23:09:49,69.34229,-163.5193,15.0,Q,1,3 cups,100,0,20m,"some jellies, 2 fish, very clean-near shore",
+116,AMBON 2017,20-Aug-17,BBL-1,PSBTA,89,23:22:41,69.34476,-163.508,23:25:12,69.34507,-163.5045,15.0,Q,1,4 gal,100,100,65m,"Added chain, ","sea stars, urchins and anenomes"
+117,AMBON 2017,21-Aug-17,BBL-2,PSBTA,90,2:14:36,69.45074,-163.9106,2:16:58,69.45109,-163.9135,23.0,Q,1,5 gal,100,100,100m,"clean, lots of fish, sea stars, crabs and 1 psolus",
+118,AMBON 2017,21-Aug-17,BBL-3,PSBTA,91,5:57:01,69.55025,-164.3961,6:02:28,69.55028,-164.4039,27.0,Q,1,30 gal,100,100,110m ,,Large purple sea stars (Asterias amurensis)
+119,AMBON 2017,21-Aug-17,BBL-4,IKMT,30,9:00:11,69.63789,-164.8127,9:14:22,69.65034,-164.7976,32.0,Q,1,1 gal,100,0,130m,,"several large jellies, saffron cod, not much else "
+120,AMBON 2017,21-Aug-17,BBL-4,PSBTA,92,9:52:46,69.64775,-164.8045,9:55:15,69.64662,-164.8056,32.0,Q,1,4 gal,100,200,115m,"3 min, chains on ","lots of fish, a few sand dollars, shrimps, sea stars "
+121,AMBON 2017,21-Aug-17,BBL-5,PSBTA,93,12:30:50,69.73531,-165.2136,12:35:44,69.73312,-165.2118,36.0,Q,1,25 gal,100,50 except sand dollars at 1/8,150m ,lots of sand (dolla dolla bills),
+122,AMBON 2017,21-Aug-17,BBL-6,PSBTA,94,15:27:26,69.82861,-165.6289,15:39:39,69.8246,-165.6282,41.0,Q,1,15 gal,100,100,160m,"chain on, 3 min tow","sand dollars, crabs"
+123,AMBON 2017,21-Aug-17,BBL-7,IKMT,31,21:51:59,69.9245,-166.0449,22:07:46,69.9117,-166.0627,45.0,Q,1,2 cups,100,0,150m,"some cod, sculpins",
+124,AMBON 2017,21-Aug-17,BBL-7,PSBTA,95,22:32:25,69.91811,-166.0448,22:35:16,69.91811,-166.0485,45.0,Q,1,6 gal,100,100,160m,"clean, lots of snow crab and hermit crabs",
+125,AMBON 2017,22-Aug-17,BBL-8,PSBTA,96,1:38:21,70.00562,-166.4812,1:41:38,70.00571,-166.4763,47.0,Q,1,7 gal,100,50,160m,"lots of sponges, huge nudibranch, snow and hermit crabs",
+126,AMBON 2017,22-Aug-17,BBL-9,PSBTA,97,4:48:15,70.09601,-166.908,4:51:46,70.09778,-166.9085,47.0,Q,1,10 gal,100,50,165m,,"blue king crab, basket stars, sponges, anenomes"
+127,AMBON 2017,22-Aug-17,BBL-10,IKMT,32,7:26:49,70.20021,-167.3646,7:42:47,70.18484,-167.3635,51.0,Q,1,1 qt ,100,0,150m,,lots of jellies and ctenophores
+128,AMBON 2017,22-Aug-17,BBL-10,PSBTA,98,8:32:05,70.19445,-167.3625,8:36:19,70.19232,-167.3638,51.0,Q,1,5 gal,100,100,180m ,"Started with 170m, added 10","crabs, large sea stars"
+129,AMBON 2017,22-Aug-17,BBL-11,PSBTA,99,11:27:49,70.28123,-167.8152,11:32:25,70.27863,-167.815,49.0,Q,1,5 gal,100,100,180m ,clean haul,"Crabs, ascidians, gersimia"
+130,AMBON 2017,22-Aug-17,BBL-12,PSBTA,100,14:16:56,70.36958,-168.2808,14:19:51,70.37035,-168.2776,45.0,Q,1,4 gal,100,100,180m ,"3 min tow, small but clean","crabs, shrimps, fish"
